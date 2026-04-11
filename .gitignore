@@ -1,0 +1,42 @@
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+Arango.DB/
+packages/
+bak.xgr/
+__pycache__/
+dataset/
+checkpoints*
+csv_results*
+test_results*
+results*
+flattened_data*
+backup*
+model_checkpoints*
+trading_results*
+test_results*
+trained_models*
+train_results*
+eval_results*
+trader_logs*
+trader_logs/
+logs/
+_cache*
+passwords*
+
+# Visual Studio 2015 cache/options directory
+.vs/
+
+# VS Code settings
+.vscode/
+
+.favorites.json
+

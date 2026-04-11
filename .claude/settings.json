@@ -1,0 +1,17 @@
+{
+  "enabledPlugins": {
+    "claude-dashboard@claude-dashboard": true
+  },
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Bash(*)",
+      "Read(*)",
+      "Fetch(*)",
+      "WebFetch(*)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)"
+    ]
+  }
+}
