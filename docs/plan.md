@@ -1552,15 +1552,15 @@ Prompt 3: "Back to code -- add a consent flow in the UI."
 
 ##### Cold Start Learning Loop
 
-Over the first month, the system learns:
+The system learns progressively as calls accumulate:
 
-**Week 1 (calls 1-50)**: Universal taxonomy only. Observation mode. Pack scores accumulating.
+**Stage 1 (calls 1-50)**: Universal taxonomy only. Observation mode. Pack scores accumulating.
 
-**Week 2 (calls 50-200)**: First pack suggestion surfaces. User accepts (most common case) or declines. Pack-specific sub-activity classification begins for accepted packs.
+**Stage 2 (calls 50-200)**: First pack suggestion surfaces. User accepts (most common case) or declines. Pack-specific sub-activity classification begins for accepted packs.
 
-**Week 3-4 (calls 200-1000)**: Classifier confusion analysis per pack. User corrections refine pack detection signals. Secondary pack may surface if work is cross-domain.
+**Stage 3 (calls 200-1,000)**: Classifier confusion analysis per pack. User corrections refine pack detection signals. Secondary pack may surface if work is cross-domain.
 
-**Month 2+**: Pack detection is mature. Cross-customer aggregate data improves baseline (the CrowdStrike flywheel). Signal inventories refined based on real-world term distributions.
+**Stage 4 (calls 1,000+)**: Pack detection is mature. Cross-customer aggregate data improves baseline (the CrowdStrike flywheel). Signal inventories refined based on real-world term distributions.
 
 ##### Project-Level Pack Inference
 
@@ -2444,7 +2444,7 @@ Signal-only classification without reading prompt content. Privacy-safe tier. Ru
 
 For calls not resolved by Tier 1. Reads prompt content.
 
-**Phase A (day 1, no training data)**: keyword matching for `activity` facet
+**Phase A (no training data)**: keyword matching for `activity` facet
 
 | Activity | Keywords (high precision) |
 |----------|--------------------------|
@@ -2461,7 +2461,7 @@ For calls not resolved by Tier 1. Reads prompt content.
 
 **Expected accuracy**: 55-70% (keyword overlap between categories limits recall). Works identically for all domains -- the keywords are activity-oriented, not domain-specific.
 
-**Phase B (week 2+, with training data)**: TF-IDF + Logistic Regression per facet
+**Phase B (with initial training data)**: TF-IDF + Logistic Regression per facet
 
 - Independent classifier per facet (MultiOutputClassifier pattern)
 - Trains in <1 second per facet on a laptop
@@ -2469,7 +2469,7 @@ For calls not resolved by Tier 1. Reads prompt content.
 - Expected accuracy: 82-86% per facet with 200-500 labeled examples per value
 - Library: scikit-learn, zero GPU required
 
-**Phase C (month 2+, with more data)**: SetFit or Sentence Transformers + KNN
+**Phase C (with accumulated training data)**: SetFit or Sentence Transformers + KNN
 
 - SetFit achieves 92.7% accuracy with just 8 examples per class (outperforms GPT-3)
 - Trains in 30 seconds per facet
@@ -2538,12 +2538,12 @@ Call arrives -> All facet extractors run in parallel
 
 **Bootstrap plan** (per facet, `activity` is the hardest -- other facets are mostly rule-based):
 
-| Phase | Labeled Examples | Activity Accuracy | Domain Accuracy | Method |
+| Stage | Labeled Examples | Activity Accuracy | Domain Accuracy | Method |
 |-------|-----------------|-------------------|-----------------|--------|
-| Day 0 | 0 | 60-75% | 80-90% (from team metadata) | Rules + keywords |
-| Week 1 | 80 (8 per activity) | 80-87% | 85-92% | SetFit few-shot per facet |
-| Week 2-4 | 200-500 | 87-92% | 90-94% | Active learning per facet |
-| Month 2+ | 1,000+ | 90-95% | 93-97% | Trained classifiers + corrections |
+| Cold start | 0 | 60-75% | 80-90% (from team metadata) | Rules + keywords |
+| Few-shot | ~80 (8 per activity) | 80-87% | 85-92% | SetFit few-shot per facet |
+| Active learning | 200-500 | 87-92% | 90-94% | Uncertainty/diversity sampling per facet |
+| Trained | 1,000+ | 90-95% | 93-97% | Trained classifiers + correction flywheel |
 
 **Sampling strategies** (ranked by effectiveness):
 1. **Uncertainty sampling**: Select examples where the current model is least confident.
@@ -3054,8 +3054,8 @@ Declawsified is not a single Python module -- it is a **product with many compon
 2. **Multiple installable packages**: users should install only what they need. `pip install declawsified-litellm` for LiteLLM users; `pip install declawsified-cli` for CLI users. Follows the LangChain pattern (`langchain-core`, `langchain-openai`, etc.).
 3. **Mixed-language support**: most components are Python, but the OTel Collector processor must be Go; the Claude Code statusline widget is TypeScript (matching claude-dashboard); browser/IDE extensions are TypeScript.
 4. **Clean adapter pattern**: the expansion path in CLAUDE.md (LiteLLM -> Langfuse -> Portkey -> Helicone -> OTel -> sidecar) means we'll add integration adapters over time. Each should be trivially addable without touching core.
-5. **All code under `src/`**: the single sources root. Components, tests, adapters, tooling — everything lives under `src/`.
-6. **Tests co-located with components + cross-component tests separate**: unit tests live with their package; integration and accuracy benchmarks live in `src/tests/`.
+5. **All code under `sources/`**: the single sources root. Components, tests, adapters, tooling — everything lives under `sources/`.
+6. **Tests co-located with components + cross-component tests separate**: unit tests live with their package; integration and accuracy benchmarks live in `sources/tests/`.
 
 ### 7.2 Component Inventory
 
@@ -3119,7 +3119,7 @@ declawsified/                         # Repository root
 |   |-- user/                         # (post-MVP) user-facing docs
 |   `-- developer/                    # (post-MVP) developer docs
 |
-|-- src/                              # ALL component source code (single source root)
+|-- sources/                          # ALL component source code (single sources root)
 |   |
 |   |-- declawsified-core/            # === CORE ENGINE (pure logic, no I/O) ===
 |   |   |-- pyproject.toml
@@ -3468,18 +3468,18 @@ Root `pyproject.toml`:
 ```toml
 [tool.uv.workspace]
 members = [
-    "src/declawsified-core",
-    "src/declawsified-data",
-    "src/declawsified-litellm",
-    "src/declawsified-claude-code",
-    "src/declawsified-codex",
-    "src/declawsified-langfuse",
-    "src/declawsified-portkey",
-    "src/declawsified-helicone",
-    "src/declawsified-sidecar",
-    "src/declawsified-cli",
-    "src/declawsified-api",
-    "src/declawsified-mcp",
+    "sources/declawsified-core",
+    "sources/declawsified-data",
+    "sources/declawsified-litellm",
+    "sources/declawsified-claude-code",
+    "sources/declawsified-codex",
+    "sources/declawsified-langfuse",
+    "sources/declawsified-portkey",
+    "sources/declawsified-helicone",
+    "sources/declawsified-sidecar",
+    "sources/declawsified-cli",
+    "sources/declawsified-api",
+    "sources/declawsified-mcp",
 ]
 
 [tool.uv.sources]
@@ -3506,23 +3506,23 @@ install:         # Install all packages in editable mode with all deps
 	uv sync --all-extras
 
 test:            # Run all unit tests across all packages
-	uv run pytest src/
+	uv run pytest sources/
 
 test-%:          # Run tests for a specific package, e.g. `make test-cli`
-	uv run --package declawsified-$* pytest src/declawsified-$*/tests
+	uv run --package declawsified-$* pytest sources/declawsified-$*/tests
 
 test-integration: # Run cross-component integration tests
-	uv run pytest src/tests/integration
+	uv run pytest sources/tests/integration
 
 test-accuracy:   # Run classification accuracy benchmarks
 	uv run python scripts/run_accuracy_benchmark.py
 
 lint:            # Ruff + mypy across all packages
-	uv run ruff check src/
-	uv run mypy src/
+	uv run ruff check sources/
+	uv run mypy sources/
 
 build:           # Build all wheels
-	for pkg in src/declawsified-*; do \
+	for pkg in sources/declawsified-*; do \
 		(cd $$pkg && uv build); \
 	done
 
@@ -3566,37 +3566,37 @@ Nightly accuracy benchmarks run against a fixed test set to catch regressions.
 |---------------|-----------|
 | Monorepo | Components share taxonomy + engine; version drift would break everything |
 | Multiple installable packages | Users install only what they need; pip install declawsified-litellm is a 5MB dep, not 500MB |
-| All code under `src/` | Single sources root as requested; tests co-located with packages |
-| `src/tests/` for cross-package | Integration tests that span packages need a shared home |
+| All code under `sources/` | Single sources root as requested; tests co-located with packages |
+| `sources/tests/` for cross-package | Integration tests that span packages need a shared home |
 | `declawsified-data` separate | Taxonomy files change on different cadence than code; can ship data updates without code release |
 | Mixed-language directories | TypeScript/Go components are first-class; not relegated to subdirs of Python packages |
 | uv workspaces | Fast, modern, handles multi-package Python repos natively |
 | No adapter depends on another | Keeps dependency graph flat; adapters are truly independent |
 | Adapters mirror CLAUDE.md expansion path | One adapter per integration point in the roadmap (LiteLLM, Langfuse, Portkey, etc.) |
-| `scripts/` outside src/ | Dev tooling, not shipped code |
-| `deploy/` outside src/ | Deployment artifacts, not shipped code |
-| `examples/` outside src/ | User-facing examples, not code to package |
-| `docs/` outside src/ | Documentation is not source code |
+| `scripts/` outside sources/ | Dev tooling, not shipped code |
+| `deploy/` outside sources/ | Deployment artifacts, not shipped code |
+| `examples/` outside sources/ | User-facing examples, not code to package |
+| `docs/` outside sources/ | Documentation is not source code |
 
 ---
 
 ## 8. Execution Steps
 
-### Phase 0: Project Setup (Days 1-3)
+### Phase 0: Project Setup
 
 See **Section 7 (Repository Structure & Packaging)** for the full repository layout and rationale. This phase scaffolds the initial skeleton matching that structure.
 
 - [ ] Initialize repository with root `pyproject.toml` as a **uv workspace**
 - [ ] Create `Makefile` with dev commands (install, test, lint, build, serve-api, docker-stack, build-embeddings)
-- [ ] Scaffold `src/` with empty stubs for MVP packages:
-  - `src/declawsified-core/` (full directory tree with placeholder modules)
-  - `src/declawsified-data/` (with sample taxonomy + pack YAMLs)
-  - `src/declawsified-litellm/` (CustomLogger skeleton)
-  - `src/declawsified-claude-code/` (hook skeleton)
-  - `src/declawsified-cli/` (Typer entry point scaffold)
-  - `src/declawsified-api/` (FastAPI app scaffold)
-  - `src/declawsified-web/` (static assets directory)
-  - `src/tests/` (integration + accuracy + safety + fixtures)
+- [ ] Scaffold `sources/` with empty stubs for MVP packages:
+  - `sources/declawsified-core/` (full directory tree with placeholder modules)
+  - `sources/declawsified-data/` (with sample taxonomy + pack YAMLs)
+  - `sources/declawsified-litellm/` (CustomLogger skeleton)
+  - `sources/declawsified-claude-code/` (hook skeleton)
+  - `sources/declawsified-cli/` (Typer entry point scaffold)
+  - `sources/declawsified-api/` (FastAPI app scaffold)
+  - `sources/declawsified-web/` (static assets directory)
+  - `sources/tests/` (integration + accuracy + safety + fixtures)
 - [ ] Defer to post-MVP scaffolding: `declawsified-langfuse`, `declawsified-portkey`, `declawsified-helicone`, `declawsified-sidecar`, `declawsified-mcp`, `declawsified-statusline`, `declawsified-vscode`, `declawsified-otel`, `declawsified-codex`
 - [ ] Create `scripts/`, `deploy/`, `examples/`, `.github/workflows/` directories
 - [ ] Set up pre-commit hooks (ruff, mypy, YAML validator)
@@ -3605,9 +3605,9 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
 - [ ] Verify `async_logging_hook` callback receives expected data (smoke test the integration point)
 - [ ] Decide on single workspace vs per-package `pyproject.toml` boundary (plan: per-package pyproject, workspace root aggregates)
 
-### Phase 1: Prompt Parser & Core Facet Extractors (Days 4-12)
+### Phase 1: Prompt Parser & Core Facet Extractors
 
-**Prompt Parser** (critical, days 3-4)
+**Prompt Parser** (critical)
 - [ ] Implement hashtag extraction using twitter-text-derived regex
   - Support `#value`, `#ns:value`, `#ns/sub/value` (nested)
   - Unicode-aware, boundary-respecting
@@ -3622,12 +3622,12 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
 - [ ] Write pure-function tests (no LLM, deterministic)
 - [ ] Verify LLM safety: manually test that preserved tags don't trigger unintended agent behavior
 
-**Facet 0: Agent** (trivial, day 5)
+**Facet 0: Agent** (trivial)
 - [ ] Extract agent identity from request headers, API base URL, user-agent
 - [ ] Extract model name from `standard_logging_object`
 - [ ] Always 100% confidence, pure rule-based
 
-**Facet 3: Project** (critical, days 5-7)
+**Facet 3: Project** (critical)
 - [ ] Implement project detection algorithm (Section 2.5):
   - Priority 0: In-prompt `!project` / `#project:X` (from parser)
   - Priority 1: Explicit tags in request headers
@@ -3643,13 +3643,13 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
 - [ ] Implement project registry YAML format (optional, user-provided)
 - [ ] Write tests with realistic git/directory signals + in-prompt commands
 
-**Facet 4: Artifact** (mostly rule-based, days 7-8)
+**Facet 4: Artifact** (mostly rule-based)
 - [ ] Build file extension -> artifact type mapping
 - [ ] Extract file paths from tool call metadata in prompt/response
 - [ ] Handle multi-artifact calls (touching both source and test files -> tag both)
 - [ ] Write tests
 
-**Facet 2: Activity** (the hard one, days 7-11)
+**Facet 2: Activity** (the hard one)
 - [ ] Tier 1 rules: git branch prefix, tool patterns, file path patterns
 - [ ] Tier 2A keywords: 10 keyword dictionaries (see Section 3.2), weighted matching
 - [ ] Implement confidence scoring and tier routing
@@ -3657,21 +3657,21 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
 - [ ] Implement privacy-safe config: `read_prompt_content: bool`
 - [ ] Write tests with representative examples for all 10 activity types
 
-**Facet 1: Domain** (days 9-11)
+**Facet 1: Domain**
 - [ ] Implement team/user metadata extraction (primary signal, high confidence)
 - [ ] Implement content-based domain classification (Tier 2 keywords for 10 domains)
 - [ ] Implement project registry -> domain mapping (when available)
 - [ ] Implement `!domain` / `#domain:X` override
 - [ ] Write tests
 
-**Facet 5: Phase** (days 10-11)
+**Facet 5: Phase**
 - [ ] Implement session-level pattern analysis (read:write ratio, file creation patterns)
 - [ ] Implement simple heuristics (new branch = implementation, review tools = review)
 - [ ] Implement `!phase` / `#phase:X` override
 - [ ] Mark as lowest-confidence facet, acceptable to omit
 - [ ] Write tests
 
-### Phase 2: Tier 3 - LLM Multi-Slot Classifier (Days 13-16)
+### Phase 2: Tier 3 - LLM Multi-Slot Classifier
 
 - [ ] Implement multi-facet slot-filling prompt (single LLM call fills activity + domain + phase)
 - [ ] Implement configurable model (default: GPT-4.1-nano)
@@ -3681,7 +3681,7 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
 - [ ] Implement local model option via Ollama for privacy-sensitive deployments
 - [ ] Write tests with expected slot-filling outputs
 
-### Phase 3: Integration & Multi-Facet Tag Writing (Days 17-20)
+### Phase 3: Integration & Multi-Facet Tag Writing
 
 - [ ] Implement the full `AutoClassifier(CustomLogger)` class
 - [ ] Wire up all facet extractors to run in parallel
@@ -3700,7 +3700,7 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
 - [ ] Verify queryability via `/spend/tags` and `/spend/logs` APIs
 - [ ] Verify each facet can be filtered independently
 
-### Phase 4: Domain Packs, Auto-Detection & Profiles (Days 21-25)
+### Phase 4: Domain Packs, Auto-Detection & Profiles
 
 - [ ] Implement domain pack loading system (YAML-based pack definitions)
 - [ ] Ship engineering pack: Conventional Commits mapping, GitClear categories
@@ -3775,7 +3775,7 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
   - Multi-pack conflict resolution
   - Per-project pack scoping
 
-### Phase 5: Semantic Cache & Session Intelligence (Days 26-28)
+### Phase 5: Semantic Cache & Session Intelligence
 
 - [ ] Implement session-level classification cache (Aeon SLB concept):
   - Consecutive calls from same session with same facet values -> cache hit
@@ -3787,7 +3787,7 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
   - Only apply when correlation improves confidence
 - [ ] Measure cache hit rate and latency improvement
 
-### Phase 6: Data Collection & Active Learning (Days 29-33)
+### Phase 6: Data Collection & Active Learning
 
 - [ ] Implement classification logging per facet: store (facet, input_signals, output, tier, confidence)
 - [ ] Design correction feedback mechanism:
@@ -3800,7 +3800,7 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
 - [ ] When 80+ labeled examples accumulated (8 per activity value), train SetFit model for activity facet
 - [ ] Implement auto-discovery report: "This week's project distribution: auth-service 42%, frontend 28%, ..."
 
-### Phase 7: Testing & Benchmarking (Days 34-38)
+### Phase 7: Testing & Benchmarking
 
 - [ ] Build comprehensive test suite:
   - Unit tests for prompt parser (hashtags, commands, edge cases, fuzzy match)
@@ -3820,11 +3820,11 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
   - No measurable impact on LiteLLM proxy throughput
 - [ ] Document: configuration options, profile selection, domain pack reference, deployment guide
 
-### Phase 8: UI Surfaces (Days 39-46)
+### Phase 8: UI Surfaces
 
 Ship the three MVP out-of-band UIs defined in Section 6.
 
-**CLI tool (days 38-40)**:
+**CLI tool**:
 - [ ] Implement `declawsified` CLI entry point (Click or Typer)
 - [ ] `declawsified status` - current session state from `~/.declawsified/state.json`
 - [ ] `declawsified report [--today|--week|--month|--range]` - aggregated reports from LiteLLM DB
@@ -3834,13 +3834,13 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 - [ ] `declawsified config [edit|show|validate]`
 - [ ] Color output, sensible defaults, `--json` flag for scripting
 
-**Structured logging (days 40-41)**:
+**Structured logging**:
 - [ ] Implement JSONL writer in the classifier callback
 - [ ] Daily rotation, gzip archival after 30 days
 - [ ] Schema validation tests
 - [ ] Document log format and query recipes with `jq`
 
-**Web dashboard (days 41-45)**:
+**Web dashboard**:
 - [ ] FastAPI backend reading from LiteLLM PostgreSQL
 - [ ] Server-rendered HTML + Alpine.js + Chart.js (keep bundle < 5MB)
 - [ ] 5 core views: Overview, Explorer, Projects, Packs, Quality
@@ -3854,7 +3854,7 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 - [ ] CLI and statusline (future) read from same file
 - [ ] Atomic writes to prevent read-during-write corruption
 
-### Phase 9: Open Source Release (Days 47-51)
+### Phase 9: Open Source Release
 
 - [ ] Write README with:
   - One-line installation
@@ -3870,13 +3870,13 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 - [ ] Write announcement post (target: r/ClaudeAI, r/LocalLLaMA, HN, r/FinOps)
 - [ ] Submit to LiteLLM community plugins / docs
 
-### Post-MVP: Additional UI Channels (Month 2-3)
+### Post-MVP: Additional UI Channels
 
 - [ ] Claude Code statusline widget (contribute to claude-dashboard or ship standalone)
 - [ ] MCP server for agent introspection (`declawsified_status`, `declawsified_recent`)
 - [ ] Desktop notifications (pack suggestions, budget alerts)
 
-### Post-MVP: Accuracy & Taxonomy Evolution (Month 2-3)
+### Post-MVP: Accuracy & Taxonomy Evolution
 
 - [ ] Accumulate labeled data via active learning + user corrections per facet
 - [ ] Train dedicated ML classifiers (TF-IDF+LogReg or SetFit) for Tier 2B per facet
@@ -3887,7 +3887,7 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 - [ ] Add cross-facet correlation modeling (ClassifierChain if measured correlations are strong)
 - [ ] Ship additional domain packs: finance, research, personal/education
 
-### Post-MVP: Platform Expansion (Month 3-6)
+### Post-MVP: Platform Expansion
 
 - [ ] Langfuse external eval pipeline adapter (batch/post-hoc faceted classification)
 - [ ] Portkey webhook guardrail integration
@@ -3900,7 +3900,7 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 
 ## 9. Success Criteria & Metrics
 
-### MVP Success (Day 51)
+### MVP Success
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
@@ -3932,7 +3932,7 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 | Expertise detection | 4 tiers functional | beginner/hobbyist/advanced/professional |
 | Dependencies | < 14 Python packages | Adds hnswlib, sentence-transformers, hdbscan |
 
-### Month 3 Success
+### Mature Product Success
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
