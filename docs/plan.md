@@ -25,8 +25,9 @@
 4. [Classification Technique Cost Analysis](#4-classification-technique-cost-analysis)
 5. [Memory & Taxonomy System Research](#5-memory--taxonomy-system-research)
 6. [User Interface & Out-of-Band Communication](#6-user-interface--out-of-band-communication) -- CLI, statusline, web dashboard, logs
-7. [Execution Steps](#7-execution-steps)
-8. [Success Criteria & Metrics](#8-success-criteria--metrics)
+7. [Repository Structure & Packaging](#7-repository-structure--packaging) -- monorepo layout, packages, workspaces
+8. [Execution Steps](#8-execution-steps)
+9. [Success Criteria & Metrics](#9-success-criteria--metrics)
 
 ---
 
@@ -3043,74 +3044,568 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
 
 ---
 
-## 7. Execution Steps
+## 7. Repository Structure & Packaging
 
-### Phase 0: Project Setup (Days 1-2)
+### 7.1 Design Goals
 
-- [ ] Initialize Python project with `pyproject.toml`
-- [ ] Set up development LiteLLM instance (Docker Compose)
-- [ ] Verify `async_logging_hook` callback receives expected data
-- [ ] Create project structure:
-  ```
-  declawsified/
-    src/
-      declawsified/
-        __init__.py
-        classifier.py          # Main AutoClassifier(CustomLogger)
-        prompt/
-          __init__.py
-          parser.py            # Hashtag + !command extraction (pure regex)
-          commands.py          # Command registry and validation
-          modes.py             # preserve / strip / normalize modes
-          fuzzy.py             # Levenshtein-based typo suggestions
-        facets/
-          __init__.py
-          base.py              # Base FacetExtractor interface
-          agent.py             # Facet 0: agent identification (trivial)
-          domain.py            # Facet 1: organizational domain
-          activity.py          # Facet 2: work activity type
-          project.py           # Facet 3: project detection
-          artifact.py          # Facet 4: artifact type
-          phase.py             # Facet 5: work lifecycle phase
-        tiers/
-          __init__.py
-          rules.py             # Tier 1: metadata rule engine
-          keywords.py          # Tier 2A: keyword matching
-          ml_classifier.py     # Tier 2B: ML classifier (TF-IDF/SetFit)
-          llm_classifier.py    # Tier 3: LLM micro-classifier (slot-filling)
-        packs/
-          __init__.py
-          base.py              # Pack interface + signal inventory schema
-          detector.py          # Pack signal scoring engine
-          state_machine.py     # INACTIVE/SUGGESTED/ACTIVE transitions
-          definitions/
-            engineering.yaml   # Signal inventory + sub-activity taxonomy
-            legal.yaml         # UTBMS codes + legal signal inventory
-            marketing.yaml     # Marketing vocabulary + sub-activities
-            research.yaml      # Academic research signals
-            finance.yaml       # Finance/accounting signals
-            personal.yaml      # Personal/education signals
-        taxonomy/
-          __init__.py
-          tree.py              # Hybrid taxonomy tree data structure (SKOS-compatible)
-          index.py             # HNSW embedding index for retrieval (Tier 1)
-          classifier.py        # Walk-the-tree LLM classifier (Tier 2)
-          rejection.py         # Deep-RTC hierarchical rejection (Tier 3)
-          stability.py         # MDL summary-tree path frequency analysis
-          expansion.py         # Neural Taxonomy Expansion for novel clusters
-          data/
-            hybrid-v1.yaml     # Shipped taxonomy (root + Curlie + MAG)
-            embeddings.bin     # Pre-computed node embeddings
-            hnsw-index.bin     # Pre-built HNSW index
-        profiles.py            # Profile definitions, switching logic
-        session.py             # Session cache + sticky tag state
-        cache.py               # Classification semantic cache
-        config.py              # Configuration, profiles, thresholds
-    tests/
-    docs/
-  ```
+Declawsified is not a single Python module -- it is a **product with many components**: client-side integration points, agent plugins, a CLI, a web backend, a web frontend, infrastructure processors, and tests. The repository structure must support:
 
-### Phase 1: Prompt Parser & Core Facet Extractors (Days 3-11)
+1. **All code in one repo (monorepo)**: tightly coupled components share the taxonomy, pack definitions, classification engine. Splitting repos early causes version drift.
+2. **Multiple installable packages**: users should install only what they need. `pip install declawsified-litellm` for LiteLLM users; `pip install declawsified-cli` for CLI users. Follows the LangChain pattern (`langchain-core`, `langchain-openai`, etc.).
+3. **Mixed-language support**: most components are Python, but the OTel Collector processor must be Go; the Claude Code statusline widget is TypeScript (matching claude-dashboard); browser/IDE extensions are TypeScript.
+4. **Clean adapter pattern**: the expansion path in CLAUDE.md (LiteLLM -> Langfuse -> Portkey -> Helicone -> OTel -> sidecar) means we'll add integration adapters over time. Each should be trivially addable without touching core.
+5. **All code under `src/`**: the single sources root. Components, tests, adapters, tooling — everything lives under `src/`.
+6. **Tests co-located with components + cross-component tests separate**: unit tests live with their package; integration and accuracy benchmarks live in `src/tests/`.
+
+### 7.2 Component Inventory
+
+Before presenting the tree, here are all the components and their relationships:
+
+```
+                                 +------------------------------+
+                                 |  declawsified-core (engine)  |
+                                 |  - prompt parser             |
+                                 |  - facet extractors          |
+                                 |  - tiered classifiers        |
+                                 |  - pack system               |
+                                 |  - tree-path taxonomy        |
+                                 |  - session/cache/config      |
+                                 +--------------+---------------+
+                                                ^
+                                                | imports
+         +--------------+----------------+-----+-----+----------------+-------------+
+         |              |                |           |                |             |
++--------+----+  +------+------+  +------+----+  +---+------+  +-----+------+  +---+------+
+| declawsifi- |  | declawsifi- |  | declawsifi|  | declawsi-|  | declawsifi-|  | declawsi-|
+| ed-litellm  |  | ed-claude-  |  | ed-cli    |  | ed-api   |  | ed-sidecar |  | ed-mcp   |
+| (CustomLog- |  | code        |  | (Typer)   |  | (FastAPI)|  | (receives  |  | (agent   |
+| ger adapter)|  | (hook)      |  |           |  |          |  | multisrc)  |  | tools)   |
++-------------+  +-------------+  +-----------+  +---+------+  +------------+  +----------+
+                                                      |
+                                                      v reads static/
+                                              +-------+------+
+                                              | declawsified-|
+                                              | web (HTML/   |
+                                              | Alpine/JS)   |
+                                              +--------------+
+
+Plus language-specific components (separate build systems):
+  - declawsified-statusline (TypeScript, Claude Code widget)
+  - declawsified-otel (Go, OTel Collector processor)
+  - declawsified-vscode (TypeScript, VS Code extension)
+
+And shared data:
+  - declawsified-data (YAML taxonomies, pack definitions, specializations, embeddings)
+```
+
+Every integration adapter imports `declawsified-core`. No adapter imports another adapter. This prevents coupling between integration points and lets us add, remove, or deprecate adapters independently.
+
+### 7.3 Full Repository Tree
+
+```
+declawsified/                         # Repository root
+|-- README.md
+|-- LICENSE
+|-- CLAUDE.md                         # AI coding agent instructions
+|-- pyproject.toml                    # Workspace root (uv workspace)
+|-- uv.lock
+|-- Makefile                          # Common dev tasks (test, lint, build, serve)
+|-- docker-compose.yml                # Full local stack for dev
+|
+|-- docs/                             # (existing research and plan)
+|   |-- plan.md
+|   |-- research-*.md
+|   |-- architecture/                 # (post-MVP) technical docs
+|   |-- user/                         # (post-MVP) user-facing docs
+|   `-- developer/                    # (post-MVP) developer docs
+|
+|-- src/                              # ALL component source code (single source root)
+|   |
+|   |-- declawsified-core/            # === CORE ENGINE (pure logic, no I/O) ===
+|   |   |-- pyproject.toml
+|   |   |-- README.md
+|   |   |-- declawsified_core/
+|   |   |   |-- __init__.py           # Public API surface
+|   |   |   |-- api.py                # classify(), get_session_state(), etc.
+|   |   |   |-- models.py             # Pydantic: Classification, Facet, Path, etc.
+|   |   |   |-- config.py             # Config loading (YAML + env)
+|   |   |   |-- prompt/               # Hashtag + !command extraction
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- parser.py
+|   |   |   |   |-- commands.py
+|   |   |   |   |-- modes.py          # preserve/strip/normalize
+|   |   |   |   `-- fuzzy.py          # Levenshtein typo matching
+|   |   |   |-- facets/               # Facet extractors (one per facet)
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- base.py
+|   |   |   |   |-- agent.py
+|   |   |   |   |-- domain.py
+|   |   |   |   |-- activity.py
+|   |   |   |   |-- project.py
+|   |   |   |   |-- artifact.py
+|   |   |   |   `-- phase.py
+|   |   |   |-- tiers/                # Classification tier cascade
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- rules.py          # Tier 1: metadata rules
+|   |   |   |   |-- keywords.py       # Tier 2A: keyword matching
+|   |   |   |   |-- ml_classifier.py  # Tier 2B: TF-IDF/SetFit
+|   |   |   |   `-- llm_classifier.py # Tier 3: LLM slot-filling
+|   |   |   |-- packs/                # Pack loading + activation state machine
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- base.py           # Pack interface + signal inventory schema
+|   |   |   |   |-- loader.py         # Load pack YAML from declawsified-data
+|   |   |   |   |-- detector.py       # Per-pack signal scoring
+|   |   |   |   `-- state_machine.py  # INACTIVE/SUGGESTED/ACTIVE
+|   |   |   |-- taxonomy/             # Tree-path classification (Section 2.4)
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- tree.py           # SKOS-compatible tree
+|   |   |   |   |-- index.py          # HNSW retrieval (Tier 1)
+|   |   |   |   |-- walker.py         # LLM walk-the-tree (Tier 2)
+|   |   |   |   |-- rejection.py      # Deep-RTC hierarchical rejection (Tier 3)
+|   |   |   |   |-- stability.py      # MDL summary-tree path analysis
+|   |   |   |   |-- expansion.py      # Neural Taxonomy Expansion
+|   |   |   |   `-- subarea.py        # Dynamic sub-area discovery
+|   |   |   |-- session.py            # Session state, sticky tags
+|   |   |   |-- cache.py              # Semantic classification cache
+|   |   |   |-- profiles.py           # Profile definitions
+|   |   |   |-- privacy.py            # Privacy tiers + redaction
+|   |   |   `-- state.py              # State file (~/.declawsified/state.json)
+|   |   `-- tests/                    # Unit tests for core
+|   |       |-- prompt/
+|   |       |-- facets/
+|   |       |-- tiers/
+|   |       |-- packs/
+|   |       |-- taxonomy/
+|   |       `-- integration/          # Intra-core integration tests
+|   |
+|   |-- declawsified-data/            # === SHIPPED DATA ASSETS ===
+|   |   |-- pyproject.toml
+|   |   |-- declawsified_data/
+|   |   |   |-- __init__.py           # resource_path() helpers
+|   |   |   |-- taxonomies/
+|   |   |   |   |-- hybrid-v1.yaml    # ~2000-node taxonomy
+|   |   |   |   `-- hybrid-v1.meta.yaml
+|   |   |   |-- packs/
+|   |   |   |   |-- engineering.yaml
+|   |   |   |   |-- legal.yaml
+|   |   |   |   |-- marketing.yaml
+|   |   |   |   |-- research.yaml
+|   |   |   |   |-- finance.yaml
+|   |   |   |   `-- personal.yaml
+|   |   |   |-- specializations/
+|   |   |   |   |-- gardening.yaml
+|   |   |   |   |-- running.yaml
+|   |   |   |   `-- job-search-tech.yaml
+|   |   |   `-- embeddings/           # Downloaded on first use if > 50MB
+|   |   |       |-- hybrid-v1-embeddings.bin
+|   |   |       |-- hybrid-v1-hnsw.bin
+|   |   |       `-- manifest.json     # SHA256 + download URL for large files
+|   |   `-- tests/                    # YAML schema validation
+|   |
+|   |-- declawsified-litellm/         # === MVP INTEGRATION ADAPTER ===
+|   |   |-- pyproject.toml            # Deps: declawsified-core, litellm
+|   |   |-- README.md                 # Quickstart: add to LiteLLM config
+|   |   |-- declawsified_litellm/
+|   |   |   |-- __init__.py
+|   |   |   |-- callback.py           # CustomLogger with async_logging_hook
+|   |   |   `-- tags.py               # Emit auto:* and correction:* tags
+|   |   `-- tests/
+|   |
+|   |-- declawsified-claude-code/     # === CLAUDE CODE HOOK ADAPTER ===
+|   |   |-- pyproject.toml
+|   |   |-- declawsified_claude_code/
+|   |   |   |-- __init__.py
+|   |   |   |-- hook.py               # UserPromptSubmit handler
+|   |   |   `-- state_emitter.py      # Writes state.json for statusline widget
+|   |   `-- tests/
+|   |
+|   |-- declawsified-codex/           # === CODEX CLI ADAPTER (post-MVP) ===
+|   |   `-- (mirrors claude-code structure)
+|   |
+|   |-- declawsified-langfuse/        # === LANGFUSE ADAPTER (post-MVP) ===
+|   |   |-- pyproject.toml
+|   |   |-- declawsified_langfuse/
+|   |   |   |-- __init__.py
+|   |   |   |-- eval_pipeline.py      # External eval pipeline (batch mode)
+|   |   |   `-- score_emitter.py      # POST /api/public/scores
+|   |   `-- tests/
+|   |
+|   |-- declawsified-portkey/         # === PORTKEY WEBHOOK GUARDRAIL (post-MVP) ===
+|   |   `-- ...
+|   |
+|   |-- declawsified-helicone/        # === HELICONE WEBHOOK (post-MVP) ===
+|   |   `-- ...
+|   |
+|   |-- declawsified-sidecar/         # === STANDALONE SIDECAR (post-MVP) ===
+|   |   |-- pyproject.toml
+|   |   |-- Dockerfile
+|   |   |-- declawsified_sidecar/
+|   |   |   |-- __init__.py
+|   |   |   |-- server.py             # HTTP receiver
+|   |   |   `-- routers/              # Per-source routing (Helicone, Portkey, OTel)
+|   |   `-- tests/
+|   |
+|   |-- declawsified-cli/             # === CLI TOOL (`declawsified` command) ===
+|   |   |-- pyproject.toml            # Entry point: `declawsified` -> cli.main
+|   |   |-- README.md
+|   |   |-- declawsified_cli/
+|   |   |   |-- __init__.py
+|   |   |   |-- __main__.py
+|   |   |   |-- cli.py                # Typer app root
+|   |   |   |-- commands/
+|   |   |   |   |-- status.py
+|   |   |   |   |-- report.py
+|   |   |   |   |-- projects.py
+|   |   |   |   |-- packs.py
+|   |   |   |   |-- specializations.py
+|   |   |   |   |-- correct.py
+|   |   |   |   `-- config.py
+|   |   |   |-- output/               # Formatting helpers
+|   |   |   |   |-- tables.py         # Rich tables
+|   |   |   |   |-- json.py           # --json flag output
+|   |   |   |   `-- color.py
+|   |   |   `-- state_reader.py       # Reads ~/.declawsified/state.json
+|   |   `-- tests/
+|   |
+|   |-- declawsified-api/             # === WEB BACKEND (FastAPI) ===
+|   |   |-- pyproject.toml
+|   |   |-- Dockerfile
+|   |   |-- declawsified_api/
+|   |   |   |-- __init__.py
+|   |   |   |-- app.py                # FastAPI application factory
+|   |   |   |-- settings.py
+|   |   |   |-- db/
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- litellm.py        # LiteLLM PostgreSQL queries
+|   |   |   |   `-- models.py         # Pydantic response models
+|   |   |   |-- auth/
+|   |   |   |   `-- litellm_passthrough.py
+|   |   |   |-- routes/               # One file per dashboard view
+|   |   |   |   |-- overview.py
+|   |   |   |   |-- explorer.py
+|   |   |   |   |-- projects.py
+|   |   |   |   |-- packs.py
+|   |   |   |   |-- quality.py
+|   |   |   |   `-- export.py         # CSV/JSON export
+|   |   |   `-- templates/            # Jinja2 server-side templates
+|   |   |       |-- base.html
+|   |   |       |-- overview.html
+|   |   |       `-- ...
+|   |   `-- tests/
+|   |
+|   |-- declawsified-web/             # === WEB FRONTEND (static assets) ===
+|   |   |-- package.json              # For tailwind/build tools (optional)
+|   |   |-- README.md
+|   |   |-- static/                   # Served by declawsified-api
+|   |   |   |-- css/
+|   |   |   |   `-- app.css
+|   |   |   |-- js/
+|   |   |   |   |-- app.js            # Alpine.js component definitions
+|   |   |   |   |-- charts.js         # Chart.js configurations
+|   |   |   |   `-- facet-filter.js
+|   |   |   `-- vendor/               # Pinned vendored JS (Alpine, Chart.js)
+|   |   `-- tests/                    # Frontend tests (Playwright, post-MVP)
+|   |
+|   |-- declawsified-statusline/      # === CLAUDE CODE STATUSLINE WIDGET ===
+|   |   |                             # (TypeScript, follows claude-dashboard pattern)
+|   |   |-- package.json
+|   |   |-- tsconfig.json
+|   |   |-- README.md
+|   |   |-- src/
+|   |   |   |-- index.ts              # Statusline hook entry point
+|   |   |   |-- widget.ts             # Widget rendering logic
+|   |   |   `-- state_reader.ts       # Reads ~/.declawsified/state.json
+|   |   `-- tests/
+|   |
+|   |-- declawsified-mcp/             # === MCP SERVER (agent introspection) ===
+|   |   |-- pyproject.toml
+|   |   |-- declawsified_mcp/
+|   |   |   |-- __init__.py
+|   |   |   `-- server.py             # MCP tools: declawsified_status, _recent
+|   |   `-- tests/
+|   |
+|   |-- declawsified-vscode/          # === VS CODE EXTENSION (post-MVP) ===
+|   |   |-- package.json
+|   |   |-- tsconfig.json
+|   |   |-- src/
+|   |   |   |-- extension.ts
+|   |   |   |-- sidebar.ts
+|   |   |   `-- state_reader.ts
+|   |   `-- tests/
+|   |
+|   |-- declawsified-otel/            # === OTEL COLLECTOR PROCESSOR (Go, post-MVP) ===
+|   |   |-- go.mod
+|   |   |-- go.sum
+|   |   |-- processor.go
+|   |   |-- factory.go
+|   |   |-- config.go
+|   |   `-- processor_test.go
+|   |
+|   `-- tests/                        # === CROSS-PACKAGE TESTS ===
+|       |-- integration/              # Multi-component E2E tests
+|       |   |-- test_litellm_e2e.py
+|       |   |-- test_cli_against_real_db.py
+|       |   |-- test_web_dashboard_flow.py
+|       |   `-- test_claude_code_hook_to_state.py
+|       |-- accuracy/                 # Classification accuracy benchmarks
+|       |   |-- benchmark_activity.py
+|       |   |-- benchmark_domain.py
+|       |   |-- benchmark_tree_path.py
+|       |   `-- benchmark_personal.py
+|       |-- safety/                   # LLM safety tests (preserved tags don't leak)
+|       |   `-- test_tag_safety.py
+|       `-- fixtures/                 # Shared test data
+|           |-- sample_prompts/
+|           |-- labeled_calls/
+|           `-- test_taxonomy.yaml
+|
+|-- scripts/                          # Dev/ops scripts (run by humans, not shipped)
+|   |-- build_taxonomy_embeddings.py  # Pre-compute embeddings at build time
+|   |-- build_hnsw_index.py
+|   |-- validate_taxonomy.py          # YAML schema validation
+|   |-- seed_test_data.py
+|   |-- generate_wildchat_taxonomy.py # Bootstrap from WildChat dataset
+|   `-- run_accuracy_benchmark.py
+|
+|-- deploy/                           # Deployment artifacts
+|   |-- docker/
+|   |   |-- docker-compose.full.yml   # LiteLLM + Declawsified + Postgres full stack
+|   |   |-- docker-compose.dev.yml
+|   |   `-- Dockerfile.sidecar
+|   |-- k8s/                          # Kubernetes manifests (post-MVP)
+|   `-- terraform/                    # IaC (post-MVP)
+|
+|-- examples/                         # Example configs and integrations
+|   |-- litellm/
+|   |   |-- litellm-config.yaml
+|   |   `-- docker-compose.example.yml
+|   |-- configs/
+|   |   |-- declawsified-config.yaml
+|   |   |-- project-registry.yaml
+|   |   `-- profile-*.yaml
+|   |-- programmatic/
+|   |   `-- example_usage.py          # Using declawsified-core directly
+|   `-- notebooks/
+|       |-- accuracy_analysis.ipynb
+|       `-- taxonomy_exploration.ipynb
+|
+`-- .github/
+    `-- workflows/
+        |-- test.yml                  # Matrix: Python 3.11/3.12/3.13 x packages
+        |-- build.yml
+        |-- publish-pypi.yml
+        |-- publish-docker.yml
+        `-- nightly-benchmarks.yml    # Run accuracy benchmarks nightly
+```
+
+### 7.4 Packaging Strategy
+
+**Independent installable packages** (all published to PyPI):
+
+| Package | What it provides | When to install |
+|---------|------------------|-----------------|
+| `declawsified-core` | Classification engine, public API | Library users building their own integrations |
+| `declawsified-data` | Taxonomies, packs, specializations, embeddings | Always installed as dep of core |
+| `declawsified-litellm` | LiteLLM callback | LiteLLM proxy users (MVP primary target) |
+| `declawsified-claude-code` | Claude Code UserPromptSubmit hook | Claude Code users with hook support |
+| `declawsified-cli` | `declawsified` terminal command | Anyone wanting CLI access |
+| `declawsified-api` | FastAPI dashboard backend | Teams running dashboard (Docker-deployed typically) |
+| `declawsified-sidecar` | Standalone HTTP service | Multi-source/multi-platform deployments |
+| `declawsified-mcp` | MCP server for agent introspection | Agents that support MCP |
+
+**Meta-package `declawsified`**: installs everything.
+
+```bash
+pip install declawsified                        # Everything
+pip install declawsified-litellm                # LiteLLM only
+pip install declawsified-cli                    # Just the CLI
+pip install declawsified-core                   # Library-only usage
+pip install "declawsified-core[ml]"             # Core + ML classifiers (SetFit, sentence-transformers)
+pip install "declawsified-core[all]"            # Core + all optional deps
+```
+
+**TypeScript/Go components** ship through their native channels:
+- `declawsified-statusline`: published to npm, installed via Claude Code plugin system
+- `declawsified-vscode`: published to VS Code Marketplace
+- `declawsified-otel`: released as Go module + pre-built OTel Collector builds
+
+**Docker images** (published to Docker Hub or GHCR):
+- `declawsified/api:latest` -- web backend, ready to run
+- `declawsified/sidecar:latest` -- standalone multi-source sidecar
+- `declawsified/stack:latest` -- full-stack compose bundle
+
+### 7.5 Dependency Graph
+
+```
+declawsified-core ---> declawsified-data
+                  `--> (optional: sentence-transformers, hnswlib, hdbscan, scikit-learn)
+
+declawsified-litellm ---> declawsified-core, litellm
+declawsified-claude-code ---> declawsified-core
+declawsified-codex ---> declawsified-core
+declawsified-langfuse ---> declawsified-core, langfuse
+declawsified-portkey ---> declawsified-core
+declawsified-helicone ---> declawsified-core, httpx
+
+declawsified-cli ---> declawsified-core, typer, rich
+declawsified-api ---> declawsified-core, fastapi, asyncpg
+declawsified-sidecar ---> declawsified-core, fastapi
+declawsified-mcp ---> declawsified-core, mcp
+
+declawsified-web (static) has NO Python deps; served by declawsified-api
+declawsified-statusline (TypeScript) has NO Python deps; reads state file
+declawsified-otel (Go) has NO Python deps; parses OTel attributes
+```
+
+**Core principle**: `declawsified-core` depends on nothing except `declawsified-data` (and optional ML libraries behind feature flags). All adapters depend on core. No adapter depends on another adapter. This keeps the dependency graph a flat star.
+
+### 7.6 Workspace Configuration
+
+Use **uv workspaces** (modern Python workspace management, fast, mature as of 2026):
+
+Root `pyproject.toml`:
+
+```toml
+[tool.uv.workspace]
+members = [
+    "src/declawsified-core",
+    "src/declawsified-data",
+    "src/declawsified-litellm",
+    "src/declawsified-claude-code",
+    "src/declawsified-codex",
+    "src/declawsified-langfuse",
+    "src/declawsified-portkey",
+    "src/declawsified-helicone",
+    "src/declawsified-sidecar",
+    "src/declawsified-cli",
+    "src/declawsified-api",
+    "src/declawsified-mcp",
+]
+
+[tool.uv.sources]
+declawsified-core = { workspace = true }
+declawsified-data = { workspace = true }
+
+[project]
+name = "declawsified"
+# ... meta-package with optional deps
+```
+
+Benefits of uv workspaces:
+- `uv sync` installs all packages in editable mode in one command
+- `uv run --package declawsified-cli declawsified status` runs commands scoped to one package
+- Shared lockfile prevents version drift
+- Fast resolution (Rust-backed)
+
+### 7.7 Development Workflow
+
+**Common operations via Makefile**:
+
+```makefile
+install:         # Install all packages in editable mode with all deps
+	uv sync --all-extras
+
+test:            # Run all unit tests across all packages
+	uv run pytest src/
+
+test-%:          # Run tests for a specific package, e.g. `make test-cli`
+	uv run --package declawsified-$* pytest src/declawsified-$*/tests
+
+test-integration: # Run cross-component integration tests
+	uv run pytest src/tests/integration
+
+test-accuracy:   # Run classification accuracy benchmarks
+	uv run python scripts/run_accuracy_benchmark.py
+
+lint:            # Ruff + mypy across all packages
+	uv run ruff check src/
+	uv run mypy src/
+
+build:           # Build all wheels
+	for pkg in src/declawsified-*; do \
+		(cd $$pkg && uv build); \
+	done
+
+serve-api:       # Run the web dashboard locally
+	uv run --package declawsified-api uvicorn declawsified_api.app:app --reload
+
+docker-stack:    # Bring up full local stack (LiteLLM + dashboard + postgres)
+	docker compose -f deploy/docker/docker-compose.full.yml up
+
+build-embeddings: # Pre-compute taxonomy embeddings (run on taxonomy change)
+	uv run python scripts/build_taxonomy_embeddings.py
+	uv run python scripts/build_hnsw_index.py
+```
+
+**Git hooks** via pre-commit:
+- `ruff format` and `ruff check --fix`
+- `mypy` on changed packages
+- YAML schema validation on `declawsified-data/**/*.yaml`
+- Reject commits that break the taxonomy validator
+
+### 7.8 Release Process
+
+**Semantic versioning** across packages. When `declawsified-core` bumps major version, all adapters must be re-validated (they may need updates). Minor/patch bumps to core are compatible.
+
+**Coordinated release script**:
+1. Run full test suite + accuracy benchmarks
+2. Update all package versions in `pyproject.toml` files (uses `bump-my-version`)
+3. Update CHANGELOG.md
+4. Build all wheels
+5. Publish to PyPI (in dependency order: data -> core -> adapters -> cli/api)
+6. Build and push Docker images
+7. Tag git release
+8. Publish to npm (statusline)
+9. Submit to VS Code Marketplace (vscode extension)
+
+Nightly accuracy benchmarks run against a fixed test set to catch regressions.
+
+### 7.9 Why This Structure
+
+| Design choice | Rationale |
+|---------------|-----------|
+| Monorepo | Components share taxonomy + engine; version drift would break everything |
+| Multiple installable packages | Users install only what they need; pip install declawsified-litellm is a 5MB dep, not 500MB |
+| All code under `src/` | Single sources root as requested; tests co-located with packages |
+| `src/tests/` for cross-package | Integration tests that span packages need a shared home |
+| `declawsified-data` separate | Taxonomy files change on different cadence than code; can ship data updates without code release |
+| Mixed-language directories | TypeScript/Go components are first-class; not relegated to subdirs of Python packages |
+| uv workspaces | Fast, modern, handles multi-package Python repos natively |
+| No adapter depends on another | Keeps dependency graph flat; adapters are truly independent |
+| Adapters mirror CLAUDE.md expansion path | One adapter per integration point in the roadmap (LiteLLM, Langfuse, Portkey, etc.) |
+| `scripts/` outside src/ | Dev tooling, not shipped code |
+| `deploy/` outside src/ | Deployment artifacts, not shipped code |
+| `examples/` outside src/ | User-facing examples, not code to package |
+| `docs/` outside src/ | Documentation is not source code |
+
+---
+
+## 8. Execution Steps
+
+### Phase 0: Project Setup (Days 1-3)
+
+See **Section 7 (Repository Structure & Packaging)** for the full repository layout and rationale. This phase scaffolds the initial skeleton matching that structure.
+
+- [ ] Initialize repository with root `pyproject.toml` as a **uv workspace**
+- [ ] Create `Makefile` with dev commands (install, test, lint, build, serve-api, docker-stack, build-embeddings)
+- [ ] Scaffold `src/` with empty stubs for MVP packages:
+  - `src/declawsified-core/` (full directory tree with placeholder modules)
+  - `src/declawsified-data/` (with sample taxonomy + pack YAMLs)
+  - `src/declawsified-litellm/` (CustomLogger skeleton)
+  - `src/declawsified-claude-code/` (hook skeleton)
+  - `src/declawsified-cli/` (Typer entry point scaffold)
+  - `src/declawsified-api/` (FastAPI app scaffold)
+  - `src/declawsified-web/` (static assets directory)
+  - `src/tests/` (integration + accuracy + safety + fixtures)
+- [ ] Defer to post-MVP scaffolding: `declawsified-langfuse`, `declawsified-portkey`, `declawsified-helicone`, `declawsified-sidecar`, `declawsified-mcp`, `declawsified-statusline`, `declawsified-vscode`, `declawsified-otel`, `declawsified-codex`
+- [ ] Create `scripts/`, `deploy/`, `examples/`, `.github/workflows/` directories
+- [ ] Set up pre-commit hooks (ruff, mypy, YAML validator)
+- [ ] Set up CI: basic test matrix workflow in `.github/workflows/test.yml`
+- [ ] Set up development LiteLLM instance via `deploy/docker/docker-compose.dev.yml`
+- [ ] Verify `async_logging_hook` callback receives expected data (smoke test the integration point)
+- [ ] Decide on single workspace vs per-package `pyproject.toml` boundary (plan: per-package pyproject, workspace root aggregates)
+
+### Phase 1: Prompt Parser & Core Facet Extractors (Days 4-12)
 
 **Prompt Parser** (critical, days 3-4)
 - [ ] Implement hashtag extraction using twitter-text-derived regex
@@ -3176,7 +3671,7 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
 - [ ] Mark as lowest-confidence facet, acceptable to omit
 - [ ] Write tests
 
-### Phase 2: Tier 3 - LLM Multi-Slot Classifier (Days 12-15)
+### Phase 2: Tier 3 - LLM Multi-Slot Classifier (Days 13-16)
 
 - [ ] Implement multi-facet slot-filling prompt (single LLM call fills activity + domain + phase)
 - [ ] Implement configurable model (default: GPT-4.1-nano)
@@ -3186,7 +3681,7 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
 - [ ] Implement local model option via Ollama for privacy-sensitive deployments
 - [ ] Write tests with expected slot-filling outputs
 
-### Phase 3: Integration & Multi-Facet Tag Writing (Days 16-19)
+### Phase 3: Integration & Multi-Facet Tag Writing (Days 17-20)
 
 - [ ] Implement the full `AutoClassifier(CustomLogger)` class
 - [ ] Wire up all facet extractors to run in parallel
@@ -3205,7 +3700,7 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
 - [ ] Verify queryability via `/spend/tags` and `/spend/logs` APIs
 - [ ] Verify each facet can be filtered independently
 
-### Phase 4: Domain Packs, Auto-Detection & Profiles (Days 20-24)
+### Phase 4: Domain Packs, Auto-Detection & Profiles (Days 21-25)
 
 - [ ] Implement domain pack loading system (YAML-based pack definitions)
 - [ ] Ship engineering pack: Conventional Commits mapping, GitClear categories
@@ -3280,7 +3775,7 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
   - Multi-pack conflict resolution
   - Per-project pack scoping
 
-### Phase 5: Semantic Cache & Session Intelligence (Days 25-27)
+### Phase 5: Semantic Cache & Session Intelligence (Days 26-28)
 
 - [ ] Implement session-level classification cache (Aeon SLB concept):
   - Consecutive calls from same session with same facet values -> cache hit
@@ -3292,7 +3787,7 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
   - Only apply when correlation improves confidence
 - [ ] Measure cache hit rate and latency improvement
 
-### Phase 6: Data Collection & Active Learning (Days 28-32)
+### Phase 6: Data Collection & Active Learning (Days 29-33)
 
 - [ ] Implement classification logging per facet: store (facet, input_signals, output, tier, confidence)
 - [ ] Design correction feedback mechanism:
@@ -3305,7 +3800,7 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
 - [ ] When 80+ labeled examples accumulated (8 per activity value), train SetFit model for activity facet
 - [ ] Implement auto-discovery report: "This week's project distribution: auth-service 42%, frontend 28%, ..."
 
-### Phase 7: Testing & Benchmarking (Days 33-37)
+### Phase 7: Testing & Benchmarking (Days 34-38)
 
 - [ ] Build comprehensive test suite:
   - Unit tests for prompt parser (hashtags, commands, edge cases, fuzzy match)
@@ -3325,7 +3820,7 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
   - No measurable impact on LiteLLM proxy throughput
 - [ ] Document: configuration options, profile selection, domain pack reference, deployment guide
 
-### Phase 8: UI Surfaces (Days 38-45)
+### Phase 8: UI Surfaces (Days 39-46)
 
 Ship the three MVP out-of-band UIs defined in Section 6.
 
@@ -3359,7 +3854,7 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 - [ ] CLI and statusline (future) read from same file
 - [ ] Atomic writes to prevent read-during-write corruption
 
-### Phase 9: Open Source Release (Days 46-50)
+### Phase 9: Open Source Release (Days 47-51)
 
 - [ ] Write README with:
   - One-line installation
@@ -3403,9 +3898,9 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 
 ---
 
-## 8. Success Criteria & Metrics
+## 9. Success Criteria & Metrics
 
-### MVP Success (Day 50)
+### MVP Success (Day 51)
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
