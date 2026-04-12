@@ -631,6 +631,298 @@ Personal use has different UI requirements:
 
 5. **Sensitive category warnings**: When the classifier detects `personal-sensitive` area, surface a one-time notice: "This looks like a health-related question. Declawsified classifies this privately on your device only. [Learn more] [Disable personal classification]".
 
+##### Primary Discovery Mechanism: Tree-Path Classification Against a Hybrid Taxonomy
+
+The core problem: **how do we let a user's individual areas emerge without burdening them with taxonomy management?** We've established that fixed taxonomies are too rigid and pure clustering produces unlabeled, unstable output. Academic research on Pinterest's Pin2Interest, Netflix's altgenres, and Amazon's hierarchical product classification points to a superior approach:
+
+**Classify each prompt into paths in a large hierarchical taxonomy, then infer user areas from path frequency and stability.**
+
+The key insight: if we match each prompt against a taxonomy like `hobby/sports/soccer/arsenal`, `hobby/sports/soccer/worldcup`, `hobby/sports/running`, then **areas emerge from which ancestors are stable across calls** (soccer, running) and **sub-areas emerge from stable paths beneath those ancestors** (arsenal, worldcup under soccer).
+
+This approach is validated by extensive academic precedent:
+
+| System | Scale | Approach | Lesson |
+|--------|-------|----------|--------|
+| Pinterest Pin2Interest | 200B+ pins, 10-level hierarchy, ~10K interests | Text+visual embeddings to taxonomy paths | Works at massive scale in production |
+| Netflix altgenres | 76,897 micro-genres | Tag combinations over curated base | Combinatorial paths > fixed leaves |
+| Spotify / Every Noise at Once | ~6,291 genres | Listening co-occurrence clusters → names | Clustering-then-labeling is viable alternative |
+| Microsoft Academic Graph | 700K fields, 5 levels | Hierarchical classifier + subsumption | Large taxonomy + classifier works |
+| Amazon product classifier | 3M SKUs | Deep hierarchical BERT + LLM dual-expert | 91.6% accuracy on 3rd tier |
+
+**Why tree-path classification beats pure clustering** (Section's previous HDBSCAN-only approach):
+
+| Property | Pure Clustering (HDBSCAN) | Tree-Path Classification |
+|----------|--------------------------|--------------------------|
+| Cold start | Need 20+ calls to form clusters | Works from call #1 |
+| Interpretability | Unlabeled clusters require naming | Paths are human-readable |
+| Cross-user comparability | Cluster IDs are user-specific | Same taxonomy paths across users |
+| Stability | Cluster IDs change as data grows | Paths are stable |
+| Cross-customer learning | Requires shared embedding space | Direct path-level aggregation (k-anonymity) |
+| Novel pattern detection | Excellent | Requires taxonomy expansion mechanism |
+
+**Conclusion**: Tree-path classification is the **primary mechanism**. HDBSCAN clustering is retained as a **secondary mechanism for taxonomy expansion** (discovering paths the taxonomy doesn't yet have).
+
+##### The Hybrid Declawsified Taxonomy
+
+No existing open taxonomy fits "things people ask AI about." Research confirms: IAB is ad-centric, Wikipedia is cyclical, Curlie is web-page-oriented, MAG is academic-only. We build a hybrid:
+
+| Layer | Source | Size | Purpose |
+|-------|--------|------|---------|
+| **Root** | Declawsified core | ~15 nodes | Universal domains + personal areas (from Section 2.3/2.4) |
+| **Mid-tree** | Declawsified curated + domain packs | ~500-1,000 nodes | Work activities + common personal sub-areas |
+| **Long tail (work)** | MAG Fields of Study (academic), custom work sub-activities | ~5,000 nodes | Deep specialization in work contexts |
+| **Long tail (personal)** | Curated from Curlie/Wikipedia categories | ~20,000-50,000 nodes | Coverage of common hobbies, interests, life activities |
+| **Emergent layer** | Neural Taxonomy Expansion (user-proposed) | Grows over time | User-specific additions |
+
+**MVP scope**: Ship with a 2,000-node hybrid taxonomy. Root + mid-tree curated by Declawsified team + 1,500 nodes curated from Curlie (fun-hobbies subtree, learning subtree) and MAG (research subtree). Long-tail nodes emerge over time via expansion mechanism.
+
+**Taxonomy file format** (SKOS-compatible YAML, can export to standard SKOS RDF):
+
+```yaml
+# taxonomy/hybrid-v1.yaml
+version: 0.1.0
+root:
+  work:
+    engineering:
+      software-development:
+        backend: [api-design, database, auth, performance]
+        frontend: [ui-components, state-management, styling]
+        devops: [ci-cd, deployment, monitoring]
+      # ... from engineering pack
+    legal:
+      # ... from legal pack + UTBMS codes
+    # ... other domains
+  personal:
+    health:
+      fitness:
+        strength-training: [weightlifting, bodyweight, crossfit]
+        endurance:
+          running: [5k, 10k, half-marathon, marathon, ultra, trail-running, track]
+          cycling: [road, mountain, gravel, commuting, touring]
+          swimming: [freestyle, open-water, triathlon]
+        yoga: [hatha, vinyasa, yin, hot-yoga]
+      nutrition: [meal-planning, dietary-restrictions, macros, recipes-health]
+      # ...
+    fun-hobbies:
+      sports:
+        soccer:
+          teams:
+            premier-league: [arsenal, chelsea, liverpool, manchester-city, manchester-united, tottenham]
+            la-liga: [real-madrid, barcelona, atletico-madrid]
+            # ... full club list
+          competitions: [worldcup, euros, champions-league, copa-america]
+          topics: [transfers, tactics, history, statistics, fantasy-football]
+        basketball:
+          leagues: [nba, wnba, college, euroleague]
+          # ...
+        # ... other sports
+      gardening:
+        # ... content from the gardening specialization
+      # ... other hobbies
+```
+
+**Scale check**: a 50K-node taxonomy is well within PECOS's <1ms inference range (production-validated at 2.8M labels). Pinterest runs 10K-node hierarchies with tens of thousands of interests at 200B+ pin scale. Our target scale is well-understood.
+
+##### Classification Pipeline: Retrieval + Walk-the-Tree
+
+Each prompt goes through a 3-tier cascade (distinct from the Section 3 activity-classification cascade — this one classifies into the TAXONOMY, not just facets):
+
+**Tier 1: Retrieval (<5ms, O(log n))**
+
+Pre-compute embeddings for every taxonomy node (using sentence-transformers: all-MiniLM-L6-v2 or gte-small). For each prompt:
+1. Embed the prompt (or extract signal tokens if in signal-only privacy mode)
+2. Find top-K=20 nearest taxonomy nodes via cosine similarity (HNSW index)
+3. Prune the tree to the subtree containing these K candidates
+
+Cost: ~5-15ms on CPU. No LLM invocation. Near-zero marginal cost.
+
+**Tier 2: LLM walk-the-tree with beam search (accurate, ~200ms)**
+
+Starting from the root of the pruned subtree:
+1. Present the LLM with: (a) prompt snippet, (b) current node, (c) list of children
+2. LLM picks top-2 children to descend into (beam=2)
+3. Repeat until: leaf reached, LLM says "no deeper match", or confidence drops below threshold
+4. Emit 1-3 paths (may be multiple if prompt spans multiple topics)
+
+This is the TELEClass / HierPrompt approach. Research shows matches flat classification accuracy without training, with dramatically better interpretability.
+
+**Tier 3: Hierarchical rejection (Deep-RTC style)**
+
+If confidence at depth D drops below threshold, stop and emit path to depth D-1. "Better correct at depth 2 than wrong at depth 5." Enforce per-node confidence thresholds:
+- Level 1 (root): require ≥0.85 confidence
+- Level 2: require ≥0.75 confidence
+- Level 3: require ≥0.65 confidence
+- Level 4+: require ≥0.55 confidence
+
+Paths too shallow to be useful (root only) get tagged `unattributed`.
+
+**Cost analysis for classification pipeline**:
+- Tier 1 (retrieval): ~$0.00 (local embedding, indexed lookup)
+- Tier 2 (LLM walk-the-tree): ~3-5 LLM calls per classification, ~$0.0003 per prompt using Gemini Flash Lite
+- Total per-call cost: ~$0.0003, about 5x the flat classification cost, but with dramatically richer output
+
+**Caching optimizations**:
+- Pin retrieval results for the session (same topic → same subtree)
+- Cache LLM walk-the-tree decisions for repeated subtree queries
+- Expected cache hit rate: 60-80% in active sessions → effective cost <$0.0001/call
+
+##### Path Frequency + Stability Analysis: The User's Insight Operationalized
+
+Given a stream of classified paths, identify the user's active areas:
+
+```python
+def analyze_path_stability(
+    paths: list[Path],        # all classified paths for this user
+    time_range: timedelta,    # analysis window (e.g., last 30 days)
+    min_calls: int = 5,       # minimum calls to surface a node
+    min_weeks: int = 2,       # minimum temporal span
+) -> Subtree:
+    """
+    Apply MDL summary-tree algorithm (Karloff & Shirley 2013) to produce
+    the user's personalized taxonomy subtree.
+    """
+    # 1. Count calls per node (including ancestor counts)
+    #    If user has a path /hobby/sports/soccer/arsenal, increment
+    #    count at arsenal, soccer, sports, hobby (each +1)
+    node_counts = {}
+    for path in paths:
+        for ancestor in path.ancestors_inclusive():
+            node_counts[ancestor] = node_counts.get(ancestor, 0) + 1
+
+    # 2. Compute temporal span per node (diversity of weeks)
+    node_weeks = {}
+    for path in paths:
+        for ancestor in path.ancestors_inclusive():
+            node_weeks.setdefault(ancestor, set()).add(path.week_number())
+
+    # 3. Filter to stable nodes
+    stable_nodes = {
+        n for n in node_counts
+        if node_counts[n] >= min_calls
+        and len(node_weeks[n]) >= min_weeks
+    }
+
+    # 4. Apply MDL summary algorithm:
+    #    For each ancestor chain, keep the deepest node where
+    #    count is "meaningful" relative to parent
+    #    (child_count / parent_count) > 0.4 => surface child
+    #    else => show parent, treat children as aggregated
+    surfaced = mdl_prune(stable_nodes, node_counts)
+
+    return Subtree(root=surfaced.root, nodes=surfaced)
+```
+
+**Example** (user's actual behavior):
+
+Classified paths over 30 days:
+```
+/hobby/sports/soccer/arsenal        (5 calls, 3 weeks)
+/hobby/sports/soccer/worldcup       (3 calls, 2 weeks)
+/hobby/sports/soccer/transfers      (2 calls, 2 weeks)
+/hobby/sports/running/marathon      (8 calls, 4 weeks)
+/hobby/sports/running/training      (4 calls, 3 weeks)
+/hobby/cooking/italian              (3 calls, 2 weeks)
+/hobby/cooking/bbq                  (2 calls, 1 week)
+```
+
+Node counts (with ancestors):
+- `hobby`: 27 calls
+- `hobby/sports`: 22 calls
+- `hobby/sports/soccer`: 10 calls
+- `hobby/sports/soccer/arsenal`: 5 calls
+- `hobby/sports/soccer/worldcup`: 3 calls
+- `hobby/sports/running`: 12 calls
+- `hobby/sports/running/marathon`: 8 calls
+- `hobby/cooking`: 5 calls
+
+Stability filter (min_calls=5, min_weeks=2):
+- Pass: `hobby`, `hobby/sports`, `hobby/sports/soccer`, `hobby/sports/soccer/arsenal`, `hobby/sports/running`, `hobby/sports/running/marathon`, `hobby/cooking`
+
+MDL pruning decisions:
+- `hobby/sports/soccer/arsenal` (5/10 = 50% of parent) → surface arsenal as sub-area
+- `hobby/sports/soccer/worldcup` (3/10 = 30% of parent, below threshold) → aggregate under soccer
+- `hobby/sports/running/marathon` (8/12 = 67% of parent) → surface marathon as sub-area
+
+Final surfaced taxonomy for this user:
+
+```
+fun-hobbies  (27 calls)
+├── sports  (22 calls)
+│   ├── soccer  (10 calls)
+│   │   └── arsenal  (5 calls)      <- stable sub-sub-area
+│   │   └── [other soccer topics]   <- aggregated (worldcup, transfers)
+│   └── running  (12 calls)
+│       └── marathon  (8 calls)      <- stable sub-sub-area
+│       └── [other running topics]  <- aggregated (training)
+└── cooking  (5 calls, shallow)
+```
+
+This is exactly the insight from the user's example. No clustering required, no embedding space maintenance, pure path-frequency analysis.
+
+##### Dynamic Depth: Coarsen and Deepen
+
+The surfaced taxonomy **adapts to each user's data volume**. A user with 1,000 calls sees a deeper tree; a user with 50 calls sees a coarser one. The same MDL algorithm run with different `min_calls` thresholds produces different levels of detail.
+
+**UX controls**:
+- Default: `min_calls=5, min_weeks=2`
+- "Summary view": `min_calls=20, min_weeks=4` (show only major areas)
+- "Detailed view": `min_calls=2, min_weeks=1` (show everything)
+
+This replaces the previous "configuration yaml" approach with something **self-tuning**: the system picks sensible defaults and the user can coarsen/deepen with a slider.
+
+##### Neural Taxonomy Expansion: Handling Novel Patterns
+
+Some user prompts will not map cleanly to any taxonomy node. These get tagged `unattributed` at some depth. When unattributed calls accumulate:
+
+1. **Cluster unattributed calls** (HDBSCAN, as in the previous section -- now used as a secondary, targeted mechanism)
+2. **For each cluster**, apply Pinterest's Neural Taxonomy Expansion:
+   - Compute cluster centroid embedding
+   - Find top-3 candidate parents in the existing taxonomy (nearest existing nodes)
+   - Use LLM to propose a name from distinctive terms + candidate parents
+3. **Propose to user**:
+   ```
+   [Declawsified] 12 recent calls cluster together but don't match existing taxonomy.
+   Distinctive terms: sourdough, autolyse, levain, starter, crumb, bulk-ferment
+   Suggested: add 'sourdough' under fun-hobbies/cooking/bread?
+
+   [ Accept ] [ Rename parent ] [ Propose different parent ] [ Reject ]
+   ```
+4. **On accept**: new node added to user's personal taxonomy extension, retroactively re-classifies the 12 calls
+
+This is the HDBSCAN approach from the previous section, now **scoped to the taxonomy-expansion role** rather than being the primary discovery mechanism.
+
+##### Cross-User Taxonomy Evolution
+
+Because all users share the same base taxonomy, cross-user learning becomes trivial at the path level:
+
+**What's aggregated** (k-anonymous, k≥50, opt-in):
+- Which taxonomy paths are most-used by users who opted into the personal pack
+- User-proposed expansions that many users accept independently
+- Path co-occurrences ("users with gardening also have woodworking")
+
+**Taxonomy evolution cycle**:
+1. Users accept expansions individually
+2. When 50+ users independently add the same path with the same parent, it becomes a candidate for the next shared taxonomy release
+3. Quarterly taxonomy updates incorporate validated community additions
+4. Users receive the update; their local expansions get promoted to canonical nodes
+
+This mirrors Pinterest's NTE + human review pattern. Over time, the shared taxonomy grows to cover more of the long tail without requiring manual curation.
+
+##### Comparison: Tree-Path Classification vs Previous HDBSCAN-Only Approach
+
+| Property | HDBSCAN-only (previous) | Tree-Path (primary) + HDBSCAN (expansion) |
+|----------|--------------------------|-------------------------------------------|
+| Cold start | 20+ calls needed | Works from call #1 |
+| Classification latency | Low (no LLM) | Low-medium (LLM walk-the-tree, cached) |
+| Classification cost | $0.00 | ~$0.0003/call (Gemini Flash Lite) |
+| Interpretability | Requires post-hoc naming | Human-readable paths immediately |
+| Cross-user learning | Hard (embedding alignment) | Trivial (path-level aggregation) |
+| Novel pattern detection | Excellent | Via HDBSCAN expansion mechanism |
+| Stability | Cluster IDs shift | Paths are stable |
+| User mental model | "The system found a cluster" | "I'm spending time on sports/soccer/arsenal" |
+
+The tree-path approach is strictly better on most dimensions. HDBSCAN remains essential but in a targeted role.
+
 ##### Dynamic Sub-Area Discovery: Personalization Through Observation
 
 The 10 life areas are a **starting point, not a ceiling**. A real user's taxonomy is deeply individual:
@@ -2798,7 +3090,19 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
             research.yaml      # Academic research signals
             finance.yaml       # Finance/accounting signals
             personal.yaml      # Personal/education signals
-        taxonomy.py            # Taxonomy definitions, evolution, profiles
+        taxonomy/
+          __init__.py
+          tree.py              # Hybrid taxonomy tree data structure (SKOS-compatible)
+          index.py             # HNSW embedding index for retrieval (Tier 1)
+          classifier.py        # Walk-the-tree LLM classifier (Tier 2)
+          rejection.py         # Deep-RTC hierarchical rejection (Tier 3)
+          stability.py         # MDL summary-tree path frequency analysis
+          expansion.py         # Neural Taxonomy Expansion for novel clusters
+          data/
+            hybrid-v1.yaml     # Shipped taxonomy (root + Curlie + MAG)
+            embeddings.bin     # Pre-computed node embeddings
+            hnsw-index.bin     # Pre-built HNSW index
+        profiles.py            # Profile definitions, switching logic
         session.py             # Session cache + sticky tag state
         cache.py               # Classification semantic cache
         config.py              # Configuration, profiles, thresholds
@@ -2915,13 +3219,30 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
   - Four privacy modes (signal-only/content-visible/local-only/work-only)
   - Sensitive sub-area redaction by default
   - Adjusted thresholds (20-call minimum, 0.6 score threshold)
-- [ ] Implement dynamic sub-area discovery (critical for personal pack value):
-  - HDBSCAN clustering of prompt embeddings (or signals in signal-only mode) per area
-  - TF-IDF distinctive-term extraction per cluster
-  - LLM-driven sub-area name proposal (redacted samples only)
-  - Weekly proposal cadence, max 2 proposals/user/week
+- [ ] **Build the hybrid taxonomy tree (PRIMARY discovery mechanism)**:
+  - SKOS-compatible YAML format; root + work + personal branches
+  - MVP: ~2,000 nodes (Declawsified core + Curlie hobbies subtree + MAG research subtree)
+  - Pre-compute embeddings for every node (sentence-transformers, e.g., all-MiniLM-L6-v2)
+  - Build HNSW index for O(log n) retrieval
+  - Taxonomy versioning + hash for reproducibility
+- [ ] **Implement tree-path classification pipeline**:
+  - Tier 1: retrieval (top-K=20 taxonomy nodes via HNSW, <5ms)
+  - Tier 2: LLM walk-the-tree with beam=2 (TELEClass / HierPrompt approach)
+  - Tier 3: hierarchical rejection with per-level confidence thresholds (Deep-RTC)
+  - Caching: pin session retrieval results, cache LLM decisions (60-80% hit rate target)
+- [ ] **Implement path frequency + stability analysis**:
+  - Node call counting with ancestor propagation
+  - Temporal span tracking (distinct weeks per node)
+  - MDL-based summary-tree algorithm (Karloff & Shirley 2013)
+  - Dynamic depth adjustment (coarsen/deepen slider)
+  - Output: personalized subtree per user
+- [ ] **Implement Neural Taxonomy Expansion (secondary, for unattributed paths)**:
+  - HDBSCAN cluster orphaned/unattributed calls (from tree-path classifier)
+  - For each cluster: TF-IDF distinctive-terms + top-3 candidate parents via embedding nearest-neighbor
+  - LLM-driven name proposal from distinctive terms + candidate parents (redacted samples only)
+  - User approval workflow with rename/reparent/reject options
   - Retroactive re-tagging on acceptance
-  - Sub-area lifecycle: emerge -> accept -> evolve -> consolidate/split -> archive/graduate
+  - Path lifecycle: propose -> accept -> evolve -> promote-to-canonical (after k=50 independent user accepts)
 - [ ] Implement specialization library (3-5 shipped specializations for MVP):
   - YAML-based specialization format (parent_area, sub_areas, depth_categories, vocab)
   - Install/uninstall commands via CLI and in-prompt `!specialization install`
@@ -3105,11 +3426,16 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 | UI channels shipped | 3 | CLI, JSONL logs, web dashboard |
 | CLI command coverage | 6 subcommands | status, report, projects, packs, correct, config |
 | Web dashboard views | 5 | Overview, Explorer, Projects, Packs, Quality |
-| Dynamic sub-area discovery | Functional | Discovers and proposes sub-areas from 20+ call clusters |
-| Sub-area proposal acceptance rate | >= 60% | % of proposed sub-areas users accept |
+| Hybrid taxonomy shipped | ~2,000 nodes | Core + Curlie hobbies + MAG research subtrees |
+| Tree-path classification latency | < 300ms avg | Including Tier 1 retrieval + Tier 2 walk-the-tree |
+| Tree-path classification cost | < $0.0005/call | Gemini Flash Lite on Tier 2 |
+| Path classification accuracy (level 2) | >= 80% | Manual validation against 500 prompts |
+| Path classification accuracy (level 3) | >= 65% | Manual validation, hierarchical rejection enabled |
+| Dynamic sub-area surfacing | Functional | MDL summary-tree produces stable user taxonomy |
+| Taxonomy expansion proposal acceptance | >= 60% | % of NTE proposals users accept |
 | Specialization library | 3 shipped | gardening, running, job-search-tech |
 | Expertise detection | 4 tiers functional | beginner/hobbyist/advanced/professional |
-| Dependencies | < 12 Python packages | Keep lightweight (adds hdbscan, sentence-transformers) |
+| Dependencies | < 14 Python packages | Adds hnswlib, sentence-transformers, hdbscan |
 
 ### Month 3 Success
 
@@ -3192,6 +3518,55 @@ Research confirms **85-90% is the adoption threshold**, not 99%:
 - Joint Intent Detection and Slot Filling Survey (ACM Computing Surveys 2022)
 - Multi-Task Learning with shared encoder -- ruder.io/multi-task/
 - Multi-Dimensional Classification (Neurocomputing 2023) -- cross-dimension correlation modeling
+
+### Tree-Path Classification Against Large Taxonomies
+- Xue et al., "Deep Classification in Large-scale Text Hierarchies" (SIGIR 2008) -- two-stage retrieve+classify over 130K ODP categories, 51.8% Mi-F1 at level 5
+- Sebastiani, "Machine Learning in Automated Text Categorization" (ACM Computing Surveys 2002) -- foundational survey
+- Gabrilovich & Markovitch, "Explicit Semantic Analysis" (IJCAI 2007) -- Wikipedia concepts as classification space
+- Suchanek et al., "YAGO: A Core of Semantic Knowledge" (WWW 2007) -- Wikipedia + WordNet unified taxonomy
+- Puurula et al., "Kaggle LSHTC4 Winning Solution" (arXiv 1405.0546) -- ensemble methods on DMOZ
+- TELEClass (arXiv 2403.00165, WWW 2025) -- LLM walk-the-tree weakly-supervised HTC
+- HierPrompt (EMNLP-Findings 2025) -- zero-shot HTC via category contextualization
+- KG-HTC (arXiv 2505.05583) -- RAG + knowledge graphs for hierarchical classification
+- Payberah, "Single-pass Hierarchical Text Classification with LLMs" -- walk-the-tree vs flat LLM comparison
+- "Hierarchical Text Classification Using Black Box LLMs" (arXiv 2508.04219) -- cost/accuracy tradeoffs
+- Wu et al., "Deep-RTC" (ECCV 2020) -- hierarchical rejection for long-tailed recognition
+
+### Extreme Multi-Label Classification
+- Parabel (Prabhu et al. 2018) -- balanced label tree, 1-vs-all at leaves
+- AttentionXML (arXiv 1811.01727) -- label tree + attention
+- X-Transformer / XR-Transformer (Chang et al. 2019, 2021) -- transformer + XR-Linear
+- CascadeXML (NeurIPS 2022, arXiv 2211.00640) -- multi-resolution, end-to-end, SOTA
+- PECOS (JMLR 2022, github.com/amzn/pecos) -- production framework, <1ms at 2.8M labels
+- Extreme Classification Repository (manikvarma.org) -- benchmark datasets
+
+### Production Systems Using Large Taxonomies
+- Pinterest Interest Taxonomy + Pin2Interest -- 10 levels, 10K+ interests, 200B+ pins classified
+- Pinterest Neural Taxonomy Expansion -- embedding projection to find parents for new terms
+- LinkedIn Skills Graph -- 39K skills, 374K aliases, KGBert-assisted maintenance
+- Netflix 76,897 altgenres -- combinatorial paths over curated tag vocabulary
+- Spotify / Every Noise at Once (6,291 genres) -- bottom-up clustering + naming
+- Microsoft Academic Graph Fields of Study -- 700K fields, 5 levels, hierarchical classifier
+- Amazon hierarchical product classifier (2024) -- 91.6% accuracy at 3rd tier, dual-expert LLM
+- Gupta et al., "Don't Classify, Translate" (2018) -- seq2seq translation to category paths
+
+### Path Aggregation / User Profiling
+- Middleton et al., "Ontological User Profiling in Recommender Systems" (ACM TOIS 2004) -- foundational
+- Karloff & Shirley, "Summary Trees" (2013) -- MDL-based taxonomy summarization, DMOZ example
+- Iana et al., "Survey on Knowledge-Aware News Recommender Systems" (2024) -- path-based methods
+- "User Modeling and User Profiling: A Comprehensive Survey" (arXiv 2402.09660, 2024)
+- Pachinko Allocation Model (Li & McCallum ICML 2006) and Hierarchical PAM (2007)
+- "Collaborative Filtering by Analyzing Dynamic User Interests Modeled by Taxonomy" (2012)
+- TDTMF (Information Processing & Management 2022) -- temporal interest drift modeling
+
+### Available Open-Source Taxonomies
+- Curlie (DMOZ successor): ~1M cats, ~3M entries, depth 15, OSS w/ attribution
+- Wikipedia categories: ~1.5M categories, CC BY-SA (cyclical, needs DBpedia for clean tree)
+- YAGO: 17M entities, CC BY 3.0/4.0, Wikipedia+WordNet clean taxonomy
+- IAB Content Taxonomy v3.1: ~698 cats, 4 tiers, open on GitHub
+- Google Product Taxonomy: ~6,600 cats, public
+- MAG Fields of Study: 700K fields, 5 levels, CC0
+- WildChat 1M (Allen AI, arXiv 2405.01470) -- real ChatGPT interactions, mineable for AI-use taxonomy
 
 ### In-Prompt Command Syntax
 - Slack Slash Commands -- docs.slack.dev/interactivity/implementing-slash-commands/
