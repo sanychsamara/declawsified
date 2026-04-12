@@ -631,6 +631,320 @@ Personal use has different UI requirements:
 
 5. **Sensitive category warnings**: When the classifier detects `personal-sensitive` area, surface a one-time notice: "This looks like a health-related question. Declawsified classifies this privately on your device only. [Learn more] [Disable personal classification]".
 
+##### Dynamic Sub-Area Discovery: Personalization Through Observation
+
+The 10 life areas are a **starting point, not a ceiling**. A real user's taxonomy is deeply individual:
+
+- An avid hobbyist has `fun-hobbies` subdivided into `gardening`, `hiking`, `board-games`, `cooking`, each with their own rhythms and vocabularies
+- A professional gardener operating a nursery has `career-personal` (or a work domain) with deep sub-areas: `permaculture`, `seed-saving`, `pest-management`, `customer-orders`, `tool-maintenance`
+- A parent of three has `parenting` subdivided by child: `child-1-school`, `child-2-sports`, `child-3-health`
+- A new runner has `health` with a growing `running` sub-area that might deepen into `training-plans`, `injury-recovery`, `race-prep` as their expertise grows
+
+**Auto-discovery of sub-areas is the core product value for personal use**, not a post-MVP feature. Users should never have to configure a taxonomy -- the system learns theirs by watching.
+
+Three tiers of personalization emerge:
+
+| Tier | Source | Example |
+|------|--------|---------|
+| **Tier 1: Universal areas** | Fixed defaults (10 areas) | `fun-hobbies` |
+| **Tier 2: Discovered sub-areas** | Observed user patterns (personalized) | `fun-hobbies/gardening` |
+| **Tier 3: Specializations** | Imported community templates or auto-deepened | `fun-hobbies/gardening/permaculture` |
+
+##### Sub-Area Discovery Algorithm
+
+Sub-areas emerge from observed data, not predefined templates. The algorithm borrows from the taxonomy management research already integrated (TnT-LLM, TaxoAdapt) but tuned for personal-use data volumes.
+
+```python
+def discover_subareas(area: str, calls: list[Call], min_size: int = 8) -> list[SubArea]:
+    """
+    Run periodically (daily/weekly) per active area.
+    Proposes new sub-areas based on observed clustering of calls within the area.
+    """
+    if len(calls) < 20:
+        return []  # not enough data yet
+
+    # 1. Embed prompts (or signals-only for privacy-safe mode)
+    embeddings = embed_calls(calls)
+
+    # 2. Density-based clustering (HDBSCAN or DBSCAN)
+    #    HDBSCAN picks natural cluster counts and labels noise
+    clusters = hdbscan_cluster(embeddings, min_cluster_size=min_size)
+
+    # 3. For each discovered cluster:
+    subareas = []
+    for cluster_id, cluster_calls in clusters.items():
+        if cluster_id == -1:
+            continue  # noise, ignore
+
+        # 4. Extract distinguishing vocabulary (TF-IDF within area)
+        distinctive_terms = tfidf_distinctive(
+            cluster_calls,
+            background=calls,  # compare against whole area
+            top_k=8
+        )
+
+        # 5. Check cohesion (intra-cluster similarity)
+        cohesion = intra_cluster_cosine(cluster_calls)
+        if cohesion < 0.55:
+            continue  # not cohesive enough
+
+        # 6. Generate candidate name via LLM (one-shot, local if possible)
+        name = propose_subarea_name(
+            distinctive_terms,
+            sample_prompts=redact(cluster_calls[:3])  # redacted samples
+        )
+
+        subareas.append(SubArea(
+            parent=area,
+            proposed_name=name,
+            distinctive_terms=distinctive_terms,
+            call_count=len(cluster_calls),
+            cohesion=cohesion,
+            first_seen=min(c.timestamp for c in cluster_calls),
+            last_seen=max(c.timestamp for c in cluster_calls),
+        ))
+
+    return subareas
+```
+
+**Key design choices**:
+- **HDBSCAN over k-means**: HDBSCAN finds natural clusters without specifying k, handles noise, produces variable-density clusters. Personal life areas don't have uniform granularity -- a user may have 1 big "gardening" cluster and 5 smaller ones.
+- **Min cluster size 8**: Balances signal vs noise. 8 recurring calls on the same sub-theme is a pattern worth naming.
+- **Cohesion threshold 0.55**: Prevents naming clusters that are coincidentally co-located but not actually about the same thing.
+- **Redacted samples for LLM naming**: Never send raw prompts to the naming call -- only vocabulary signals + redacted snippets.
+
+##### Surfacing Discoveries to the User
+
+The system never auto-creates sub-areas. It proposes them:
+
+```
+[Declawsified]  Last 30 days, under `fun-hobbies` we noticed a pattern:
+  Cluster: 23 calls, cohesion 0.78
+  Distinctive terms: seeds, soil, tomato, compost, zone, bed, raised, mulch
+  Sample themes (redacted): planning spring garden, soil amendments, ...
+
+  Proposed sub-area:  fun-hobbies/gardening
+
+  [ Accept ] [ Rename ] [ Reject ] [ Remind me later ]
+```
+
+**UX principles**:
+- Propose at most 2 new sub-areas per user per week (avoid nagging)
+- Batch proposals weekly, not per-call
+- Let users rename before accepting
+- "Reject" remembers the cluster and stops surfacing it for 90 days
+- Applied retroactively: once accepted, all past calls in that cluster are re-tagged
+
+##### Expertise Detection: Hobby vs Professional
+
+A user who asks "how do I grow tomatoes?" once is a beginner. A user who asks about "companion planting for heirloom tomatoes in USDA zone 7b with cover crop rotation" is several tiers deeper. The system should detect this and offer **specialization depth** dynamically.
+
+**Expertise signals per sub-area**:
+
+| Signal | Weight | What It Indicates |
+|--------|--------|-------------------|
+| Vocabulary depth (distinct technical terms per call) | +0.3 | Advanced knowledge |
+| Question complexity (multiple sub-questions, conditionals) | +0.2 | Mature mental model |
+| Specific references (brand names, species, cultivar names, standards) | +0.3 | Deep domain |
+| Sustained frequency (> 3 calls/week for 4+ weeks) | +0.2 | Ongoing investment |
+| Teaching language ("I'm helping my friend with...") | +0.3 | Expert teaching others |
+| Professional context leak ("my client's garden", "our nursery", "my farm") | +0.5 | Likely professional |
+| Advanced-only vocabulary hits (cultivar, scion, grafting, polyculture) | +0.4 | Advanced hobbyist or pro |
+| Beginner-phrases ("what is", "how do I start", "I'm new to") | -0.3 | Early learner |
+
+**Expertise tiers**:
+
+| Score | Tier | System Behavior |
+|-------|------|-----------------|
+| 0.0-0.3 | `beginner` | Simple sub-area, no specialization offered |
+| 0.3-0.6 | `hobbyist` | Offer sub-area creation, shallow sub-structure |
+| 0.6-0.9 | `advanced-hobbyist` | Offer specialization library: "You seem deeply interested in gardening. Import the advanced gardening specialization?" |
+| 0.9+ | `professional` | Suggest moving to a domain rather than a life area: "This looks like professional work. Reclassify as domain=agriculture with project=nursery-operations?" |
+
+##### Specialization Library: Community Patterns
+
+Auto-discovery is powerful, but **users benefit from pre-curated depth for common interests**. The specialization library is a growing collection of community-sourced sub-area taxonomies users can import with one command.
+
+**Structure of a specialization**:
+
+```yaml
+# specializations/gardening-advanced.yaml
+name: gardening-advanced
+parent_area: fun-hobbies
+description: Deep taxonomy for serious home gardeners
+author: declawsified-community
+version: 1.2
+
+sub_areas:
+  planning:
+    description: Garden design, crop rotation, seasonal planning
+    vocab: [plan, design, rotation, companion, zone, hardiness]
+
+  seeds-starting:
+    description: Seed selection, germination, seed-starting
+    vocab: [seed, germination, stratification, heirloom, hybrid, F1]
+
+  soil-composting:
+    description: Soil health, amendments, composting
+    vocab: [compost, amendment, pH, nitrogen, mulch, tilth, organic-matter]
+
+  pests-diseases:
+    description: Pest identification, organic control, disease management
+    vocab: [pest, aphid, blight, fungicide, neem, integrated-pest-management]
+
+  pruning-training:
+    description: Pruning techniques, espalier, trellising
+    vocab: [prune, espalier, trellis, pinch, thin, graft]
+
+  harvesting-preserving:
+    description: Harvest timing, preservation, storage
+    vocab: [harvest, canning, freezing, dehydrate, curing, storage]
+
+  specialization-areas:
+    permaculture: {vocab: [swale, guild, food-forest, polyculture]}
+    hydroponics: {vocab: [nutrient-solution, DWC, NFT, EC, ppm]}
+    native-plants: {vocab: [native, ecotype, wildlife-garden, pollinator]}
+    edible-landscaping: {vocab: [edible, foodscape, fruit-tree, perennial-vegetable]}
+```
+
+**Specializations ship with the tool** for common interests identified from cross-customer aggregate data (opt-in):
+
+| Area | Shipped Specializations |
+|------|------------------------|
+| `fun-hobbies` | gardening, running, cycling, photography, cooking, board-games, reading, woodworking, knitting, birdwatching |
+| `health` | strength-training, endurance-training, yoga, weight-loss, chronic-condition-X, mental-health |
+| `parenting` | newborn, toddler, school-age, teenager, special-needs, co-parenting |
+| `finances` | investing-stocks, real-estate, retirement-planning, tax-optimization, frugal-living |
+| `career-personal` | job-search-tech, job-search-general, interview-prep, side-hustle, remote-work |
+| `learning` | language-learning, programming-learning, music-learning, test-prep |
+| `personal-growth` | journaling, therapy-prep, habit-building, relationship-growth |
+
+**User workflow**:
+
+```bash
+$ declawsified specializations list --area fun-hobbies
+Available specializations under fun-hobbies:
+  * gardening       (community, v1.2)   [auto-suggested, 67% match]
+    running         (community, v1.0)
+    photography     (community, v2.0)
+    cooking         (community, v1.1)
+    ... 6 more ...
+
+$ declawsified specializations install gardening
+Installed fun-hobbies/gardening specialization (7 sub-areas + depth categories).
+Retroactively re-tagging 23 recent calls...
+Done. 18 of 23 calls auto-mapped. 5 remain at fun-hobbies/gardening (no sub-area match).
+```
+
+**Auto-suggestion of specializations**:
+
+When sub-area discovery proposes a new sub-area AND that sub-area name matches a shipped specialization, the system offers the specialization instead:
+
+```
+[Declawsified] Discovered new sub-area: fun-hobbies/gardening (23 calls).
+
+We also have a community 'gardening' specialization with 7 sub-areas and
+4 depth categories (permaculture, hydroponics, etc.). Import it?
+
+  [ Just create sub-area ] [ Import specialization ] [ Rename ] [ Skip ]
+```
+
+##### Cross-Customer Pattern Learning (The Flywheel)
+
+The CrowdStrike-style data moat applies to personal use too, but with stricter privacy gates.
+
+**What's shared (opt-in, aggregated, k-anonymous)**:
+- Sub-area names that users accept (not sub-area vocabularies or content)
+- Specialization usage statistics
+- Common sub-area co-occurrences ("users with gardening also have woodworking")
+
+**What's never shared**:
+- Individual call content
+- User-specific vocabularies
+- Sensitive-tier classifications (health sub-areas, relationship sub-areas, finance sub-areas)
+
+**What this enables**:
+- Growing the specialization library: popular user-accepted sub-areas become candidates for new shipped specializations
+- Cold-start better defaults: "Most new users in `fun-hobbies` develop sub-areas for: cooking (34%), gardening (28%), reading (22%)..."
+- Trend detection: "Users in 2026 are increasingly adding AI-assisted sub-areas around homesteading, LLM-development, climate-adaptation"
+
+**Privacy mechanism**: k-anonymity threshold of k=50. No sub-area name is published until 50+ users have it independently. No cohort is attributable. Encrypted aggregation via secure aggregation protocol (same technique Apple uses for iMessage emoji statistics).
+
+##### Sub-Area Lifecycle
+
+Sub-areas are not forever. They can:
+
+**Emerge**: Discovered from 20+ calls clustering within an area. Proposed to user.
+**Accepted**: User accepts; sub-area becomes active, retroactive re-tagging applied.
+**Evolve**: Additional clusters within an accepted sub-area trigger nested sub-area proposals (3 levels max: area > sub-area > sub-sub-area).
+**Consolidate**: If two sub-areas have > 0.8 overlap in vocabulary and calls, suggest merging.
+**Split**: If a sub-area contains distinct clusters > cohesion threshold, suggest splitting.
+**Archive**: No calls for 90 days; system proposes archiving (keeps tag searchable but stops auto-classifying to it).
+**Graduate**: Expertise tier crosses into `professional` → suggest moving from life area to domain.
+
+##### Privacy-Safe Sub-Area Discovery Mode
+
+For users in Signal-only privacy mode (default), prompt embeddings are unavailable. Sub-area discovery operates on available signals:
+
+| Signal | Usable Without Prompt Content |
+|--------|------------------------------|
+| File paths touched | Yes (`~/Gardens/spring-2026-plan.md`) |
+| File name keywords | Yes (filename contains "tomato") |
+| Working directory patterns | Yes (`~/Hobbies/Gardening/`) |
+| Temporal patterns (time of day, day of week) | Yes |
+| Session duration | Yes |
+| Tool invocation patterns | Yes |
+| In-prompt tags user typed (`#gardening`) | Yes -- users can explicitly seed taxonomy via tags |
+| Actual prompt text | No (signal-only mode) |
+
+Signal-only discovery is less granular (finds `gardening` but not `gardening/permaculture`) but preserves privacy. Users can explicitly deepen via `#tags` or by toggling to content-visible mode for specific areas.
+
+**Example**: User in signal-only mode has been saving files to `~/Hobbies/Garden/` and tagging prompts with `#garden` for 6 weeks. System detects 34 calls with consistent file/tag pattern, proposes `fun-hobbies/gardening` sub-area. No prompt content was read.
+
+##### Configuration: User Control Over Dynamic Taxonomy
+
+```yaml
+# ~/.declawsified/config.yaml (personal profile)
+personal:
+  area_discovery:
+    enabled: true
+    proposal_frequency: weekly  # weekly | daily | on-demand
+    max_proposals_per_week: 2
+    min_cluster_size: 8
+    cohesion_threshold: 0.55
+    auto_accept_threshold: 0.0  # 0 = never auto-accept, 1.0 = always
+
+  specializations:
+    auto_suggest: true
+    installed: [gardening, running, job-search-tech]
+
+  expertise_detection:
+    enabled: true
+    suggest_specialization_at: 0.6
+    suggest_professional_reclassification_at: 0.9
+
+  cross_customer_sharing:
+    enabled: false  # opt-in, default off
+    shared_areas: []  # user picks per-area: [fun-hobbies, learning]
+    exclude_sensitive: true  # never share health/relationships/finances/parenting
+```
+
+##### How This Generalizes to Work Packs
+
+Dynamic sub-area discovery isn't unique to personal use -- it applies to work packs too. An engineer's `activity=investigating` might organically subdivide into `error-tracing` / `performance-profiling` / `integration-debugging` without predefinition. The personal pack is just the **most urgent** case because personal interests are fundamentally heterogeneous.
+
+The same algorithm runs for work packs, with these differences:
+
+| Aspect | Personal | Work |
+|--------|----------|------|
+| Min cluster size | 8 | 25 |
+| Proposal frequency | weekly | monthly |
+| Privacy constraints | Strong (sensitive areas) | Weaker (corporate context) |
+| Specialization library | Hobby/life templates | Industry/role templates |
+| Cross-customer sharing | Opt-in per area | Opt-in per org |
+
+Post-MVP, work packs inherit this dynamic discovery mechanism for domain-specific sub-activities.
+
 #### Pack: Personal / Education
 
 **Note on Education vs Personal**: The educational use case (students using AI for coursework) is a specialized subset of personal use. An educational overlay adds sub-activities like `homework`, `exam-prep`, `thesis-work` within the personal pack's areas (primarily `learning`, `career-personal`, `personal-growth`).
@@ -1445,6 +1759,8 @@ The multi-line anchor (`(?m)^`) is critical: prose flows around commands in mult
 | `!personal` | Force personal classification for this call | `!personal` |
 | `!work` | Force professional classification for this call | `!work` |
 | `!privacy <signal-only\|content\|local>` | Change privacy mode | `!privacy signal-only` |
+| `!subarea <parent>/<name>` | Create or assign personal sub-area | `!subarea fun-hobbies/gardening` |
+| `!specialization install <name>` | Import community specialization template | `!specialization install gardening` |
 | `!help` | Out-of-band help (doesn't reach LLM) | `!help` |
 
 **Tag-to-command equivalence table**:
@@ -2599,6 +2915,23 @@ This scope gives MVP users three complementary UIs (CLI + logs + web) that cover
   - Four privacy modes (signal-only/content-visible/local-only/work-only)
   - Sensitive sub-area redaction by default
   - Adjusted thresholds (20-call minimum, 0.6 score threshold)
+- [ ] Implement dynamic sub-area discovery (critical for personal pack value):
+  - HDBSCAN clustering of prompt embeddings (or signals in signal-only mode) per area
+  - TF-IDF distinctive-term extraction per cluster
+  - LLM-driven sub-area name proposal (redacted samples only)
+  - Weekly proposal cadence, max 2 proposals/user/week
+  - Retroactive re-tagging on acceptance
+  - Sub-area lifecycle: emerge -> accept -> evolve -> consolidate/split -> archive/graduate
+- [ ] Implement specialization library (3-5 shipped specializations for MVP):
+  - YAML-based specialization format (parent_area, sub_areas, depth_categories, vocab)
+  - Install/uninstall commands via CLI and in-prompt `!specialization install`
+  - Auto-suggestion when discovered sub-area matches shipped specialization
+  - MVP shipped specializations: gardening, running, job-search-tech
+- [ ] Implement expertise detection:
+  - Per-sub-area expertise scoring (vocabulary depth, complexity, frequency, context)
+  - 4 tiers: beginner / hobbyist / advanced-hobbyist / professional
+  - Triggers specialization offer at advanced-hobbyist tier
+  - Triggers "reclassify as work domain" suggestion at professional tier
 - [ ] **Implement pack signal scoring engine** (Section 2.4 subsection):
   - Per-pack signal inventories (strong/medium/weak/exclusion)
   - Score computation with TF-IDF-style weighting
@@ -2772,7 +3105,11 @@ Ship the three MVP out-of-band UIs defined in Section 6.
 | UI channels shipped | 3 | CLI, JSONL logs, web dashboard |
 | CLI command coverage | 6 subcommands | status, report, projects, packs, correct, config |
 | Web dashboard views | 5 | Overview, Explorer, Projects, Packs, Quality |
-| Dependencies | < 10 Python packages | Keep lightweight |
+| Dynamic sub-area discovery | Functional | Discovers and proposes sub-areas from 20+ call clusters |
+| Sub-area proposal acceptance rate | >= 60% | % of proposed sub-areas users accept |
+| Specialization library | 3 shipped | gardening, running, job-search-tech |
+| Expertise detection | 4 tiers functional | beginner/hobbyist/advanced/professional |
+| Dependencies | < 12 Python packages | Keep lightweight (adds hdbscan, sentence-transformers) |
 
 ### Month 3 Success
 
