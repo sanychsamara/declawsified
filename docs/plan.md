@@ -24,8 +24,9 @@
 3. [Classification Engine: Research & Approach](#3-classification-engine-research--approach)
 4. [Classification Technique Cost Analysis](#4-classification-technique-cost-analysis)
 5. [Memory & Taxonomy System Research](#5-memory--taxonomy-system-research)
-6. [Execution Steps](#6-execution-steps)
-7. [Success Criteria & Metrics](#7-success-criteria--metrics)
+6. [User Interface & Out-of-Band Communication](#6-user-interface--out-of-band-communication) -- CLI, statusline, web dashboard, logs
+7. [Execution Steps](#7-execution-steps)
+8. [Success Criteria & Metrics](#8-success-criteria--metrics)
 
 ---
 
@@ -233,6 +234,8 @@ This is the original "work type" classifier, now one facet among five. The value
 
 Automatic project detection -- not deferred to post-MVP. This is the facet that answers "where is the money going?" and every enterprise buyer needs it from day 1.
 
+**Personal use variant**: For personal classification, the `project` facet is replaced by two facets: `area` (ongoing life area: health, finances, etc.) and `goal` (time-bounded initiative within an area). See Section 2.4 Personal Pack for the full taxonomy. This is the PARA distinction between ongoing Areas and time-bounded Projects.
+
 **Detection hierarchy (most specific wins)**:
 
 | Priority | Signal | Confidence | Example |
@@ -405,22 +408,234 @@ Based on Big 4 service categories and standard accounting workflow.
 | `reviewing` | financial-review, tax-review, audit-review, disclosure-review |
 | `coordinating` | engagement-management, multi-entity-coordination, external-audit-support |
 
+#### Pack: Personal / Life
+
+**Personal use requires a fundamentally different taxonomy** than professional work. The core distinction from Tiago Forte's PARA method:
+
+- **Projects** (work world) = short-term efforts with a deadline and a "done" state ("ship auth-service v2 by Q2")
+- **Areas** (personal world) = ongoing spheres of responsibility with a standard to maintain indefinitely, no completion state ("health", "parenting", "finances")
+
+For professional use, the `project` facet captures discrete initiatives. For personal use, most AI activity belongs to an **Area** (recurring, no deadline) with occasional **Goals** nested inside (time-bounded projects within an area).
+
+Concrete mappings:
+
+| Professional | Personal Equivalent |
+|--------------|---------------------|
+| project=auth-service | area=health |
+| project=frontend-redesign | area=finances |
+| project=patent-q3-filings | goal=marathon-training (inside area=health) |
+
+**The personal pack replaces the `project` facet with two facets: `area` and `goal`.**
+
+##### Personal Life Areas (10 Universal Areas)
+
+Synthesized across PARA (Forte), Wheel of Life (coaching), PERMA (Seligman positive psychology), Flourishing Life Model, and Maslow's hierarchy. These 7 core + 3 extended appear in 5+ frameworks each:
+
+| Area | Description | Common Sub-Areas |
+|------|-------------|------------------|
+| `health` | Physical + mental wellbeing, fitness, medical, sleep, nutrition | fitness, nutrition, sleep, medical-care, mental-health, chronic-conditions |
+| `finances` | Budgeting, taxes, investing, debt, major purchases | budgeting, taxes, investing, debt-management, major-purchases, retirement-planning |
+| `relationships` | Family, friends, romantic, social connections | family, friends, romantic, social, networking-personal, conflict-resolution |
+| `parenting` | Kids, school, family logistics (distinct from relationships) | school, kids-activities, child-development, family-logistics, discipline, milestones |
+| `home` | Household management, repairs, shopping, meal planning | meal-planning, chores, repairs, shopping, decor, organization |
+| `career-personal` | Job search, skills, certifications, professional growth outside of current job | job-search, resume, interview-prep, certifications, side-hustle, networking |
+| `learning` | Reading, courses, languages, self-education (not for a specific job) | reading, courses, languages, hobbies-skill, tutorials, note-taking |
+| `fun-hobbies` | Recreation, creative pursuits, travel planning, games | travel, creative-project, gaming, sports-hobby, entertainment, crafts |
+| `personal-growth` | Journaling, therapy, meditation, identity work, reflection | journaling, therapy-notes, meditation, values-reflection, habits, mindset |
+| `admin` | Bills, scheduling, errands, documents, government forms | bills, scheduling, documents, government, insurance, subscriptions |
+
+**Extended areas** (opt-in for users who want them):
+- `spirituality` — faith practice, prayer, spiritual reading, religious community
+- `community-service` — volunteering, activism, donations, civic engagement
+- `creative-self-expression` — separate from hobbies when it's identity-level (writing, music, art)
+
+##### Personal Activity Taxonomy (Mapped to Universal 10)
+
+The 10 universal activities still apply, but with personal-life sub-activities:
+
+| Activity | Personal Sub-Activities |
+|----------|------------------------|
+| `investigating` | symptom-checking, troubleshooting, diagnosing, researching-problem |
+| `building` | meal-planning, workout-creation, creative-project, side-project, decor-planning |
+| `improving` | habit-building, skill-practice, editing, refinement, form-correction |
+| `verifying` | checking-facts, fact-verification, second-opinion, proofreading |
+| `researching` | learning, reading, comparing-options, medical-research, product-research |
+| `planning` | goal-setting, trip-planning, budget-planning, schedule-planning, life-planning |
+| `communicating` | email-draft, journaling, difficult-conversation-prep, card-writing, social-post |
+| `configuring` | account-setup, app-setup, home-setup, tool-configuration |
+| `reviewing` | self-reflection, reviewing-goals, checking-progress, evaluating-options |
+| `coordinating` | family-scheduling, group-trip-planning, event-coordination |
+
+##### Personal Goal Detection
+
+Within each Area, Goals are time-bounded projects. Goal detection signals:
+
+| Signal | Pattern | Example |
+|--------|---------|---------|
+| Explicit deadline in prompt | "by June 1", "before the wedding", "next month" | `goal=tax-return-2026` under `area=finances` |
+| Named project in prompt | "my marathon training", "our Europe trip" | `goal=marathon-training` under `area=health` |
+| Recurring theme over weeks | Same topic appearing in 10+ calls over 2+ weeks | `goal=job-search-q2-2026` under `area=career-personal` |
+| Explicit `!new-goal` command | User declares | `!new-goal buy-first-house area=finances` |
+| Event-linked | Birthday, holiday, milestone nearby | `goal=daughter-birthday-2026` under `area=parenting` |
+
+Goals inherit their Area from the project registry or from explicit user tagging:
+```
+!new-goal marathon-training area=health deadline=2026-06-15
+```
+
+##### Detecting Personal vs Professional Use
+
+The hardest detection problem for the personal pack isn't "which area" -- it's "is this personal at all?". A software engineer asking Claude about Python syntax at 7pm from their work laptop is ambiguous. Our detection uses a two-tier signal model:
+
+**Tier A: Signal-only detection (privacy-safe, no prompt reading)**
+
+| Signal | Score Direction | Strength |
+|--------|-----------------|----------|
+| Time of day: 6pm-11pm local | personal | Medium |
+| Time of day: 5am-8am local | personal | Weak |
+| Day of week: Saturday/Sunday | personal | Strong |
+| Working directory: `~/Documents/Personal/`, `~/Taxes/`, `~/Family/`, `~/Recipes/`, `~/Health/` | personal | Very Strong |
+| Working directory: `~/dev/`, `~/src/`, `~/projects/`, `~/work/`, `/Users/x/Code/` | professional | Very Strong |
+| File types touched: `.py`, `.ts`, `.go`, `.rs` | professional | Strong |
+| File types: `.docx` (non-legal), `.xlsx` (non-finance), personal `.md` notes | personal | Medium |
+| No git repository in workdir | personal | Medium |
+| Tool mix: Read/Write on prose, no Bash/Grep | personal | Medium |
+| Short session (< 5 min, 1-3 turns) | personal | Weak |
+| Long code-heavy session (> 30 min, many Bash/Edit) | professional | Strong |
+| Machine hostname contains "mac-personal", "home-pc" | personal | Strong |
+| Account: gmail.com, outlook.com, iCloud.com | personal | Medium |
+| Account: @company.com, @corporate-domain | professional | Medium |
+
+**Tier B: Content-based detection (requires prompt reading opt-in)**
+
+| Signal | Score Direction |
+|--------|-----------------|
+| First-person singular dominant ("I/me/my") | personal |
+| First-person plural dominant ("we/our/the team") | professional |
+| Vocab: wife/husband/partner/kid/mom/dad/doctor/my budget | personal |
+| Vocab: the team, our customer, the PR, our codebase, sprint, stakeholders | professional |
+| Emotional loading, hedging, uncertainty | personal (weakly) |
+| Code blocks, error messages, stack traces | professional |
+| Medical terms, recipes, workout plans, financial numbers | personal |
+
+**Classification decision**:
+- Sum weighted signals across both tiers
+- If `personal_score > professional_score + 0.3`: classify as personal
+- Route to `personal` pack
+- If ambiguous: keep work pack active, tag call with `context:ambiguous` for later review
+
+##### Personal Pack Auto-Activation (Different from Work Packs)
+
+The pack auto-detection algorithm (Section 2.4) adapts for personal use with looser thresholds because:
+1. Personal use is often lower-volume (10-50 calls/day vs 100-1000 for work)
+2. Misclassifying personal as work is more embarrassing than vice versa (privacy)
+3. Signals are often stronger (time-of-day, workdir) but fewer
+
+**Adjusted thresholds for personal pack**:
+
+| Rule | Work Packs | Personal Pack |
+|------|-----------|--------------|
+| Min calls before suggesting | 50 | 20 |
+| Score threshold to suggest | 0.7 | 0.6 |
+| Score threshold to deactivate | 0.3 over 50 calls | 0.2 over 20 calls |
+| Rolling window | 20 calls | 10 calls |
+
+##### Privacy Architecture for Personal Classification
+
+Three of the most-useful personal areas (`health`, `relationships`, `finances`) overlap directly with **GDPR Article 9 special categories** and **CPRA "sensitive personal information"**. Classifying a call as `area=health` is itself processing of sensitive data -- even if the raw prompt isn't stored.
+
+This creates a hard design requirement for the personal pack:
+
+**Sensitivity tiers** (each classification carries a tier flag):
+
+| Tier | Areas | Default Handling |
+|------|-------|------------------|
+| `none` | Professional domains (engineering, legal, etc.) | Standard logging |
+| `personal-safe` | home, fun-hobbies, learning, admin, career-personal | Logged with area tag |
+| `personal-sensitive` | health, relationships, parenting, finances, personal-growth | Area tag logged; sub-area redacted unless opt-in; prompt content never logged |
+| `regulated` | Any area crossing HIPAA/GDPR Art 9 thresholds | Area name ONLY; no sub-area, no signals, no prompt, tag = `auto:area:restricted` |
+
+**Four privacy modes** (user-selectable):
+
+1. **Signal-only** (default for personal pack): Never read prompt content. Classification uses only time-of-day, workdir, file types, tool patterns. Lower accuracy (~70%) but zero content exposure.
+2. **Content-visible** (opt-in): Classifier reads prompts to improve accuracy (~90%) but prompts are not logged or shared beyond the classification event.
+3. **Local-only** (paranoid mode): All personal classifications stay on the user's machine. Never exported to cross-customer aggregates. Never logged to external systems.
+4. **Work-only** (disable personal pack): Tool classifies only calls detected as professional. Personal calls bypass classification entirely, no logs.
+
+**Sensitive sub-area redaction**:
+
+By default, for `personal-sensitive` tier:
+- `auto:area:health` -- tagged
+- `auto:area:health:cancer-treatment` -- REDACTED unless user opts in
+- `auto:goal:chemotherapy-planning` -- REDACTED unless user opts in
+
+The user can see their own full classifications locally; cross-customer aggregation and cloud dashboards see only the top-level area.
+
+**Cross-customer learning opt-in**:
+- Work packs: aggregated patterns shared by default (anonymous, aggregate)
+- Personal pack: **explicit opt-in per area**, with k-anonymity guarantees before export (no cohort smaller than k=50)
+
+##### Personal Pack Detection Signals
+
+```yaml
+personal:
+  strong:
+    workdir_patterns:
+      - "~/Documents/Personal/**"
+      - "~/Taxes/**"
+      - "~/Family/**"
+      - "~/Recipes/**"
+      - "~/Health/**"
+      - "~/Journal/**"
+      - "~/Finances/**"
+    temporal:
+      - weekend: weight 0.7
+      - after_hours: weight 0.5
+    vocab:
+      pronoun_patterns:
+        - "my (wife|husband|partner|kid|son|daughter|mom|dad|doctor|boss)"
+        - "I want to (lose|quit|start|learn)"
+      area_vocab:
+        health: [symptom, diagnosis, workout, diet, medication, therapy, doctor, hospital]
+        finances: [budget, 401k, mortgage, tax, savings, debt, invest, retirement]
+        relationships: [partner, spouse, breakup, marriage, dating, friend, family]
+        parenting: [school, homework, teacher, pediatrician, playdate, tantrum, baby]
+        home: [recipe, dinner, grocery, laundry, repair, plumber, landlord]
+        career-personal: [resume, interview, offer letter, job hunt, networking]
+        learning: [tutorial, course, book, language, practice]
+        fun-hobbies: [vacation, travel, hobby, game, movie, concert]
+  medium:
+    vocab: [personally, myself, my life, my goal, personal]
+    file_types: [.md (notes), .txt (personal), .docx (non-legal), recipe formats]
+    no_git: true
+  exclusion:
+    vocab: [the team, our sprint, customer, stakeholder, deploy, production, CI, merge]
+    workdir_patterns:
+      - "**/node_modules/**"
+      - "**/.git/**"
+      - "**/src/**"
+      - "**/dist/**"
+```
+
+##### Personal Pack UI Considerations
+
+Personal use has different UI requirements:
+
+1. **Hide cost prominently**: Personal users care less about dollars (use is often tiny anyway) and more about time-spent-by-area. Reframe the dashboard: "Your AI assistant helped you with 47 health questions this month" vs "You spent $2.31 on health this month".
+
+2. **Life Wheel visualization**: For personal users, the web dashboard shows a radial "Wheel of Life" chart with AI usage per area as the primary visualization. Matches existing coaching/productivity mental models.
+
+3. **Goal progress tracking**: Personal goals (marathon training, job search) benefit from progress tracking -- show call density over time, goal completion estimates.
+
+4. **Privacy-first defaults**: Personal pack ships with "Signal-only" mode enabled by default. User must explicitly opt into content-based classification.
+
+5. **Sensitive category warnings**: When the classifier detects `personal-sensitive` area, surface a one-time notice: "This looks like a health-related question. Declawsified classifies this privately on your device only. [Learn more] [Disable personal classification]".
+
 #### Pack: Personal / Education
 
-Based on GTD, PARA method, Eisenhower matrix, and Bloom's taxonomy for learning activities.
+**Note on Education vs Personal**: The educational use case (students using AI for coursework) is a specialized subset of personal use. An educational overlay adds sub-activities like `homework`, `exam-prep`, `thesis-work` within the personal pack's areas (primarily `learning`, `career-personal`, `personal-growth`).
 
-| Activity | Personal/Education Sub-Activities |
-|----------|-----------------------------------|
-| `investigating` | troubleshooting, problem-diagnosis, self-assessment |
-| `building` | project-work, homework, creative-project, portfolio |
-| `improving` | skill-practice, revision, editing, self-improvement |
-| `verifying` | self-testing, quiz-prep, answer-checking, proofreading |
-| `researching` | learning, reading, tutorial-following, course-study |
-| `planning` | goal-setting, schedule-planning, project-planning, career-planning |
-| `communicating` | email, journaling, blogging, social-media-personal |
-| `configuring` | tool-setup, environment-config, account-management |
-| `reviewing` | note-review, spaced-repetition, reflection, mentor-feedback |
-| `coordinating` | group-project, meeting-scheduling, delegation |
+For the MVP, the personal pack covers both. A dedicated education pack is post-MVP.
 
 #### Pack Auto-Detection: Finding the Right Pack Without Configuration
 
@@ -1068,6 +1283,51 @@ project_detection: client/campaign codes from headers
 custom_facets: [client, campaign, channel, billable]
 ```
 
+#### Profile: Personal Use (Individual, No Work)
+
+```yaml
+profile: personal
+domain_facet: replaced  # no domains; areas instead
+active_packs: [personal]
+primary_view: area + goal + activity
+project_detection: disabled  # replaced by area detection
+area_detection: signal-only (time, workdir, vocabulary)
+privacy_mode: signal-only  # default: never read prompt content
+sensitive_redaction: enabled  # health/relationships/finances sub-areas hidden
+cross_customer_sharing: opt-in-per-area
+dashboard_view: life-wheel  # radial chart, not bar/line
+```
+
+#### Profile: Personal + Professional (Hybrid User)
+
+For the common case: professional using AI for both work and personal tasks on the same machine.
+
+```yaml
+profile: hybrid
+domain_facet: full  # work domains
+active_packs: [engineering, personal]  # or whatever work pack + personal
+primary_view: context(work|personal) + area-or-project + activity
+project_detection: enabled for work contexts
+area_detection: enabled for personal contexts
+personal_work_classifier: enabled  # signal-based discriminator runs first
+privacy_mode: work=standard, personal=signal-only
+session_split: automatic  # session can contain both contexts, classified per-call
+```
+
+**Key behavior**: The personal-vs-work classifier (Section 2.4 Personal Pack detection signals) runs first. Work calls get the work pack's classification; personal calls get the personal pack's classification. Same user, same session, different facet schemas applied per-call.
+
+#### Profile: Student
+
+```yaml
+profile: student
+domain_facet: simplified  # personal + coursework
+active_packs: [personal, education-overlay]
+primary_view: course + activity + assignment
+project_detection: course codes (CS101, MATH240) and assignment names
+area_detection: subset  # primarily learning, career-personal, personal-growth
+custom_facets: [course, assignment, exam]
+```
+
 ### 2.10 Cross-Dimensional Intelligence
 
 The highest-value insights come from correlating across facets. These are not part of the classifier itself but emerge from the multi-faceted data:
@@ -1180,6 +1440,11 @@ The multi-line anchor (`(?m)^`) is critical: prose flows around commands in mult
 | `!pack-default <name>` | Set default pack(s) for current project | `!pack-default legal,research` |
 | `!pack-auto <on\|off>` | Toggle auto-suggestion acceptance | `!pack-auto on` |
 | `!pack-no-thanks <name>` | Decline pack suggestion (30-day cooldown) | `!pack-no-thanks marketing` |
+| `!area <name>` | Set personal life area (personal pack) | `!area health` |
+| `!new-goal <name> area=<area>` | Declare personal goal inside an area | `!new-goal marathon-training area=health deadline=2026-06-15` |
+| `!personal` | Force personal classification for this call | `!personal` |
+| `!work` | Force professional classification for this call | `!work` |
+| `!privacy <signal-only\|content\|local>` | Change privacy mode | `!privacy signal-only` |
 | `!help` | Out-of-band help (doesn't reach LLM) | `!help` |
 
 **Tag-to-command equivalence table**:
@@ -1837,7 +2102,340 @@ Four refinement operations: rename, rearrange, generate intermediate nodes, merg
 
 ---
 
-## 6. Execution Steps
+## 6. User Interface & Out-of-Band Communication
+
+### 6.1 The Communication Problem
+
+Classifications happen invisibly in the background -- the LiteLLM callback fires, tags are written to SpendLogs, and the user sees... nothing. This is a feature (classifications don't interrupt work) but also a problem. Users need visibility into:
+
+1. **What was just classified?** -- immediate feedback for confidence-building and debugging
+2. **What is my current context?** -- project, activity, active packs
+3. **What happened this week?** -- historical patterns, cost attribution, team rollups
+4. **Pack suggestions and project discoveries** -- non-blocking notifications
+5. **Misclassification corrections** -- easy way to fix errors and feed the active-learning pipeline
+
+All of this must flow through **out-of-band channels** -- never through the LLM prompt. Section 2.11 established the safety reasoning: any classification chatter in the prompt risks being interpreted as instructions by the main LLM. Corrections, suggestions, and status information must reach the user through dedicated UI surfaces.
+
+### 6.2 Channel Strategy: Complementary, Not Competing
+
+Different users need different UIs at different times:
+
+| Scenario | User | Preferred Channel |
+|----------|------|-------------------|
+| "What is my agent doing right now?" | Developer, live session | Statusline widget |
+| "What did I spend on debugging today?" | Developer, end of day | CLI report |
+| "How much did Legal spend on AI last month?" | CFO, monthly review | Web dashboard |
+| "Why was this call classified wrong?" | Developer, correction flow | CLI or web |
+| "Should I activate the legal pack?" | User encountering suggestion | CLI prompt or statusline indicator |
+| "Export classifications for finance audit" | Finance, compliance | Web dashboard CSV export, raw logs |
+
+No single UI covers all scenarios well. Ship multiple complementary channels, each optimized for specific use cases.
+
+### 6.3 MVP Channels (Ship These)
+
+#### 6.3.1 CLI Tool (`declawsified`)
+
+The primary interface. Lowest setup cost, works in any terminal, scriptable.
+
+**Core commands**:
+
+```bash
+$ declawsified status
+Session: abc123 (active 45m, 17 calls)
+Project: auth-service (from git repo + in-prompt #project tag)
+Active packs: engineering
+Recent classifications:
+  00:23:12  investigating  engineering:error-tracing    $0.024
+  00:22:45  researching    engineering:code-reading     $0.008
+  00:21:18  investigating  engineering:error-tracing    $0.031
+  00:20:02  building       engineering:feature-impl     $0.042
+  00:19:30  verifying      engineering:unit-testing     $0.015
+
+$ declawsified report --today
+Today's classifications (142 calls, $8.73 total):
+  By activity:                 By domain:              By project:
+    investigating  42%  $3.67    engineering  100%       auth-service      67%  $5.85
+    building       28%  $2.44                            frontend-redesign 23%  $2.01
+    verifying      15%  $1.31                            unattributed      10%  $0.87
+    researching    10%  $0.87
+    other           5%  $0.44
+
+$ declawsified projects
+Detected projects this week:
+  auth-service       89 calls  $12.42   engineering   (registered)
+  frontend-redesign  34 calls  $5.81    engineering   (registered)
+  patent-q3-filings  12 calls  $1.94    legal         (suggested - accept with `declawsified projects register`)
+
+$ declawsified packs
+Active: engineering (accepted 2026-04-12)
+Suggested: legal (73% match on 18 recent calls)
+  > declawsified packs accept legal
+  > declawsified packs decline legal      (30-day cooldown)
+
+$ declawsified correct --last activity=improving
+Updated: call abc123:042 activity=improving (was: building, confidence 0.68)
+Logged as training signal. 4 similar corrections this week -- classifier will be retrained tonight.
+
+$ declawsified config
+Opens ~/.declawsified/config.yaml in $EDITOR
+```
+
+**Why CLI first**: Unix developers live in the terminal. No installation friction beyond `pip install`. Zero UI code cost. Scriptable for automation. Debuggable.
+
+#### 6.3.2 Claude Code Statusline Widget
+
+Real-time classification visibility inline with the agent. The claude-dashboard plugin (https://github.com/uppinote20/claude-dashboard) has validated this pattern -- developers want rich, always-visible metadata in their statusline.
+
+**Reference implementation**: Build as an additional widget within claude-dashboard (they have a widget API and are accepting contributions), OR ship a standalone declawsified-statusline plugin. Both use Claude Code's `statusLine` hook mechanism.
+
+**Compact mode** (narrow terminals, default):
+```
+auth-service | debug | eng | $0.04
+```
+
+**Normal mode** (2 lines):
+```
+Line 1: auth-service | investigating | engineering:error-tracing
+Line 2: session $0.42 | 5m avg $0.04/call | 142 today | 1 pack suggested
+```
+
+**Verbose mode** (4 lines, for large terminals):
+```
+Line 1: project auth-service (0.95) | activity investigating (0.91)
+Line 2: domain engineering (0.95) | artifact source (0.99) | phase maintenance (0.72)
+Line 3: engineering:error-tracing | cost $0.042 | tier 2 keyword+rule
+Line 4: session $0.42 | today $8.73 | 2 pack suggestions | 3 corrections pending
+```
+
+**Widget implementation**: Read state from `~/.declawsified/state.json` (written by the LiteLLM callback after each classification). Sub-second refresh, no network calls, no LLM interaction.
+
+**Pack suggestion indicator**: When suggestions are pending, statusline shows a subtle `*` prefix (e.g., `*auth-service | debug`) signaling "check `declawsified packs`".
+
+#### 6.3.3 Web Dashboard (Local Self-Hosted)
+
+Essential for managers, finance, and non-developer stakeholders. Required for any team beyond a single developer.
+
+**Deployment**: Runs alongside LiteLLM proxy. Single additional service in docker-compose:
+
+```yaml
+services:
+  declawsified-ui:
+    image: declawsified/ui:latest
+    ports: ["4001:4001"]
+    environment:
+      LITELLM_DB_URL: postgresql://llmproxy:dbpassword9090@db:5432/litellm
+    depends_on: [db]
+```
+
+Serves at `http://localhost:4001`. Reads directly from LiteLLM's PostgreSQL database -- no separate data store.
+
+**Core views**:
+
+**View 1: Overview (landing page)**
+- Time-series stacked area chart: cost by activity over last 30 days
+- Bar chart: top 10 projects by spend this week
+- Pie chart: domain distribution
+- Sparkline: pack signal strength over time
+- KPI cards: total spend, calls, active packs, unattributed ratio
+
+**View 2: Explorer (multi-facet filtering)**
+- Filter by any combination of facets (domain, activity, project, artifact, phase)
+- Time range picker
+- Table view of individual calls with full classification metadata
+- CSV export for finance and compliance teams
+- Link to LiteLLM's native call detail view
+
+**View 3: Projects**
+- All detected projects (registered + auto-discovered)
+- Pack assignments per project
+- Metadata editor (domain, cost center, custom tags)
+- "Accept suggestion" one-click for auto-discovered projects
+
+**View 4: Packs**
+- State machine view: INACTIVE / SUGGESTED / ACTIVE per pack per scope
+- Signal strength history (time series)
+- Accept / decline controls
+- Per-pack classification distribution
+
+**View 5: Quality**
+- Confusion matrix per facet (based on user corrections)
+- Low-confidence classifications awaiting review
+- Corrections feed (recent user corrections with context)
+- Classifier version history
+
+**Tech stack for MVP**: Server-rendered HTML (Flask/FastAPI + Jinja) + Alpine.js for interactivity + Chart.js for visualizations. Avoid heavy React/Next.js build for MVP -- target < 5MB total bundle size. The dashboard does not need offline-first or real-time collaboration features.
+
+**Authentication**: Piggyback on LiteLLM's existing auth. User logged in to LiteLLM UI is logged in to Declawsified UI.
+
+#### 6.3.4 Structured Logs (JSONL)
+
+The universal channel: always-on, zero-UI, maximum flexibility. Every classification is written as one line of JSON to a log file.
+
+**Log location**: `~/.declawsified/logs/YYYY-MM-DD.jsonl` (rotates daily)
+
+**Format** (one line per classification):
+
+```json
+{
+  "ts": "2026-04-12T14:32:17.214Z",
+  "session_id": "abc123",
+  "call_id": "abc123:042",
+  "agent": "claude-code",
+  "model": "claude-sonnet-4-5",
+  "facets": {
+    "domain": {"value": "engineering", "confidence": 0.95, "tier": 1},
+    "activity": {"value": "investigating", "confidence": 0.91, "tier": 2},
+    "project": {"value": "auth-service", "confidence": 1.0, "source": "in_prompt_command"},
+    "artifact": {"value": "source", "confidence": 0.98, "tier": 1},
+    "phase": {"value": "maintenance", "confidence": 0.72, "tier": 3}
+  },
+  "pack_scores": {"engineering": 0.87, "legal": 0.12, "marketing": 0.03},
+  "active_packs": ["engineering"],
+  "pack_primary": "engineering",
+  "pack_subclass": {"engineering": "error-tracing"},
+  "cost_usd": 0.042,
+  "tokens": {"input": 2340, "output": 560, "cache_read": 15000},
+  "signals_used": ["git_branch:fix/auth-timeout", "file_ext:.py", "keyword:error"],
+  "in_prompt_tags": ["#project:auth-service"],
+  "in_prompt_commands": [],
+  "classifier_version": "0.1.0"
+}
+```
+
+**Why JSONL**:
+- Tailable: `tail -f ~/.declawsified/logs/2026-04-12.jsonl`
+- Greppable: `grep '"activity":{"value":"investigating"' *.jsonl`
+- Streamable: pipe to `jq`, `fx`, `dasel` for ad-hoc queries
+- Parseable in any language, with any tool
+- Auditable: append-only, timestamped
+- Portable: zip up logs to share with auditor / finance
+
+This is the lowest-level API. Everything else (CLI, statusline, web UI) is a view on top of this data.
+
+#### 6.3.5 LiteLLM Dashboard Integration (Zero-Code Channel)
+
+LiteLLM's existing UI at `http://localhost:4000/ui` already renders spend by tag. Since Declawsified writes tags to the same `request_tags` field LiteLLM natively surfaces, classifications appear there for free -- just not in a Declawsified-branded view.
+
+**MVP approach**: Ship documentation explaining how to query classifications via LiteLLM's existing UI:
+
+1. Navigate to `http://localhost:4000/ui`
+2. Go to **Spend > Tags**
+3. Filter by `auto:activity:*`, `auto:domain:*`, etc. to see classification breakdowns
+4. Drill into individual requests to see full tag sets
+
+This gives immediate value with zero additional UI code. For many users (especially those already running LiteLLM), this is enough -- they do not need a separate Declawsified dashboard for basic queries.
+
+### 6.4 Post-MVP Channels
+
+#### Desktop Notifications (Native)
+- macOS Notification Center, Linux libnotify, Windows toast
+- Use case: pack suggestions, project auto-discovery, budget alerts
+- Debounced to at most one notification per event type per 7 days
+- Libraries: `plyer` (cross-platform Python) or platform-specific bindings
+- **Why post-MVP**: notification permissions require per-platform handling and can feel intrusive
+
+#### MCP Server (Agent Introspection)
+- Tools: `declawsified_status()`, `declawsified_recent(n=10)`, `declawsified_project_info(name)`
+- Lets the agent query its own classification state when asked
+- Example: user asks "what have I been working on today?", agent calls `declawsified_recent` and reports
+- 100% safe: MCP tool calls return structured data; no classification chatter in the prompt
+- **Why post-MVP**: MCP agent support varies (Claude Code has it, others adding it), so defer until agent ecosystem stabilizes
+
+#### Slack / Email Digests (Async)
+- Weekly summary: "Last week your team spent $X on AI: Y% debugging, Z% building"
+- Targeted at managers and finance, not developers
+- Configurable: per-team, per-project, per-domain rollups
+- **Why post-MVP**: requires per-org configuration (email/Slack credentials, recipient lists, schedule tuning)
+
+#### IDE Extensions (VS Code / JetBrains / Cursor)
+- Sidebar panel showing current project + recent classifications
+- Inline gutter annotations on files being classified
+- Command palette: "Correct last classification", "Show session summary"
+- **Why post-MVP**: highest engineering effort, requires separate extension per IDE, deferred until MVP validates demand
+
+#### Tray Icon / Menu Bar App
+- Always-visible current classification in OS tray
+- Click to reveal recent classifications and quick actions
+- **Why post-MVP**: niche audience (desktop power users), OS-specific development
+
+#### Browser Extension
+- For web-based agents (claude.ai, ChatGPT, Cursor in browser)
+- Overlay showing classifications on messages
+- **Why post-MVP**: web-based agents are harder to intercept; browser extension adds permission friction
+
+### 6.5 Notification Channel Priority (Pack Suggestions, Project Discovery)
+
+Section 2.4 specified that pack suggestions must be out-of-band and non-nagging. Here is the concrete channel priority:
+
+**Priority 1: CLI on-demand** -- User runs `declawsified packs` or `declawsified projects` and sees current state + pending suggestions. Zero nagging.
+
+**Priority 2: Statusline subtle indicator** -- When suggestions are pending, statusline shows a subtle `*` prefix signaling "check Declawsified". No modal, no popup.
+
+**Priority 3: CLI one-line footer** -- When the user runs ANY `declawsified` command with pending suggestions, append a one-line footer: "3 suggestions pending. Run `declawsified packs` to review."
+
+**Priority 4 (post-MVP): Native notifications** -- Only for high-signal events (a pack that passed 0.85+ score for 50+ calls). Debounced to once per week. Dismissible permanently per pack.
+
+**Never**:
+- Inline in the LLM prompt (would leak to main agent)
+- Blocking modals that stop work
+- Repeated notifications for the same declined suggestion
+
+### 6.6 Communication Matrix
+
+What information flows through which MVP channel:
+
+| Information | CLI | Statusline | Web Dashboard | JSONL Logs | LiteLLM UI |
+|-------------|-----|-----------|---------------|------------|------------|
+| Current classification | yes | yes | no | yes | via tag |
+| Session totals | yes | yes | yes | derived | yes |
+| Historical reports | yes | no | yes | derived | yes (basic) |
+| Pack suggestions | yes | yes (subtle) | yes | yes | no |
+| Project auto-discovery | yes | yes (subtle) | yes | yes | no |
+| Misclassification corrections | yes | no | yes | yes | no |
+| Multi-dimensional drill-down | basic | no | yes | via jq | basic |
+| CSV export | yes | no | yes | yes (JSONL) | yes |
+| Confusion analysis | no | no | yes | derived | no |
+
+### 6.7 State File: The Glue Between Channels
+
+All channels read from the same underlying data:
+
+**Persistent state** (`~/.declawsified/state.json`):
+- Current session context (project, active packs, recent classifications)
+- Updated after every classification (LiteLLM callback writes)
+- Read by CLI and statusline widget
+- TTL: session-scoped (cleared at session boundaries)
+
+**Historical data** (LiteLLM PostgreSQL + JSONL logs):
+- All past classifications with full facet data
+- Read by web dashboard, CLI `report` command, aggregation queries
+- Canonical source of truth for analytics
+
+**Config** (`~/.declawsified/config.yaml`):
+- Profile, active packs, project registry, custom facets
+- Read by classifier at startup, UI tools for display
+
+Keeping these three surfaces cleanly separated means each channel has a well-defined data source. No channel duplicates state.
+
+### 6.8 MVP Scope Summary
+
+**Ship in MVP (Phase 8)**:
+- CLI tool (`declawsified` command with status, report, projects, packs, correct, config subcommands)
+- Structured JSONL logs (always-on)
+- Web dashboard (local self-hosted, 5 core views)
+- LiteLLM dashboard integration docs (zero code, high value)
+
+**Design-for-but-defer**:
+- Claude Code statusline widget (build as Phase 9 if MVP adoption signals demand)
+
+**Post-MVP**:
+- Desktop notifications, MCP server, Slack/email digests, IDE extensions, tray icon, browser extension
+
+This scope gives MVP users three complementary UIs (CLI + logs + web) that cover every required scenario while keeping the engineering scope bounded. The statusline widget is deferred by one phase but designed-for now (the state file format supports it).
+
+---
+
+## 7. Execution Steps
 
 ### Phase 0: Project Setup (Days 1-2)
 
@@ -1993,6 +2591,14 @@ Four refinement operations: rename, rearrange, generate intermediate nodes, merg
 - [ ] Ship engineering pack: Conventional Commits mapping, GitClear categories
 - [ ] Ship legal pack: UTBMS activity code mapping
 - [ ] Ship marketing pack: channel/campaign/content-type sub-activities
+- [ ] Ship personal pack (priority, different schema):
+  - 10 life areas (PARA-inspired: health, finances, relationships, parenting, home, career-personal, learning, fun-hobbies, personal-growth, admin)
+  - Replaces `project` facet with `area` + `goal` facets
+  - Personal-vs-work classifier (signal-based, uses time-of-day, workdir, vocabulary)
+  - Privacy tier system (none/personal-safe/personal-sensitive/regulated)
+  - Four privacy modes (signal-only/content-visible/local-only/work-only)
+  - Sensitive sub-area redaction by default
+  - Adjusted thresholds (20-call minimum, 0.6 score threshold)
 - [ ] **Implement pack signal scoring engine** (Section 2.4 subsection):
   - Per-pack signal inventories (strong/medium/weak/exclusion)
   - Score computation with TF-IDF-style weighting
@@ -2065,7 +2671,41 @@ Four refinement operations: rename, rearrange, generate intermediate nodes, merg
   - No measurable impact on LiteLLM proxy throughput
 - [ ] Document: configuration options, profile selection, domain pack reference, deployment guide
 
-### Phase 8: Open Source Release (Days 38-42)
+### Phase 8: UI Surfaces (Days 38-45)
+
+Ship the three MVP out-of-band UIs defined in Section 6.
+
+**CLI tool (days 38-40)**:
+- [ ] Implement `declawsified` CLI entry point (Click or Typer)
+- [ ] `declawsified status` - current session state from `~/.declawsified/state.json`
+- [ ] `declawsified report [--today|--week|--month|--range]` - aggregated reports from LiteLLM DB
+- [ ] `declawsified projects [list|register|discover]`
+- [ ] `declawsified packs [list|accept|decline|status]`
+- [ ] `declawsified correct [--last|--id] facet=value`
+- [ ] `declawsified config [edit|show|validate]`
+- [ ] Color output, sensible defaults, `--json` flag for scripting
+
+**Structured logging (days 40-41)**:
+- [ ] Implement JSONL writer in the classifier callback
+- [ ] Daily rotation, gzip archival after 30 days
+- [ ] Schema validation tests
+- [ ] Document log format and query recipes with `jq`
+
+**Web dashboard (days 41-45)**:
+- [ ] FastAPI backend reading from LiteLLM PostgreSQL
+- [ ] Server-rendered HTML + Alpine.js + Chart.js (keep bundle < 5MB)
+- [ ] 5 core views: Overview, Explorer, Projects, Packs, Quality
+- [ ] CSV export on all tabular views
+- [ ] Docker Compose integration (single service added to existing LiteLLM stack)
+- [ ] Auth via LiteLLM session (no separate login)
+
+**State file management (cross-cutting)**:
+- [ ] Define and implement `~/.declawsified/state.json` schema
+- [ ] Classifier callback writes state after each classification
+- [ ] CLI and statusline (future) read from same file
+- [ ] Atomic writes to prevent read-during-write corruption
+
+### Phase 9: Open Source Release (Days 46-50)
 
 - [ ] Write README with:
   - One-line installation
@@ -2074,10 +2714,18 @@ Four refinement operations: rename, rearrange, generate intermediate nodes, merg
   - Domain pack documentation
   - Accuracy benchmarks per facet
   - Architecture explanation (faceted classification, tiered cascade)
+  - UI guide: CLI, web dashboard, LiteLLM tag querying
 - [ ] Publish to PyPI
-- [ ] Create GitHub repository with CI/CD (tests, linting)
+- [ ] Publish `declawsified-ui` Docker image
+- [ ] Create GitHub repository with CI/CD (tests, linting, docker build)
 - [ ] Write announcement post (target: r/ClaudeAI, r/LocalLLaMA, HN, r/FinOps)
 - [ ] Submit to LiteLLM community plugins / docs
+
+### Post-MVP: Additional UI Channels (Month 2-3)
+
+- [ ] Claude Code statusline widget (contribute to claude-dashboard or ship standalone)
+- [ ] MCP server for agent introspection (`declawsified_status`, `declawsified_recent`)
+- [ ] Desktop notifications (pack suggestions, budget alerts)
 
 ### Post-MVP: Accuracy & Taxonomy Evolution (Month 2-3)
 
@@ -2101,9 +2749,9 @@ Four refinement operations: rename, rearrange, generate intermediate nodes, merg
 
 ---
 
-## 7. Success Criteria & Metrics
+## 8. Success Criteria & Metrics
 
-### MVP Success (Day 42)
+### MVP Success (Day 50)
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
@@ -2121,7 +2769,10 @@ Four refinement operations: rename, rearrange, generate intermediate nodes, merg
 | Pack false-positive rate | < 5% | Packs suggested that don't match user's work |
 | Zero-config startup | Works with no setup | User installs, types first prompt, gets classification |
 | Profiles shipped | >= 4 | Solo dev, engineering team, enterprise, legal |
-| Dependencies | < 8 Python packages | Keep lightweight |
+| UI channels shipped | 3 | CLI, JSONL logs, web dashboard |
+| CLI command coverage | 6 subcommands | status, report, projects, packs, correct, config |
+| Web dashboard views | 5 | Overview, Explorer, Projects, Packs, Quality |
+| Dependencies | < 10 Python packages | Keep lightweight |
 
 ### Month 3 Success
 
