@@ -1317,7 +1317,9 @@ Three design questions must be answered:
 
 **Option 5: No back-propagation; correct via user.** Only forward inheritance. Historical calls stay as originally classified. Users can issue `!correct` to retroactively fix specific calls. Simplest but misses the common "oh, this entire morning was auth-service work" insight.
 
-#### Recommended Design: Options 1 + 4
+#### Decision: Options 1 + 4
+
+**Status:** Accepted 2026-04-12. The MVP ships with forward strict inheritance (Option 1) plus back-propagation until conflict (Option 4). Options 2, 3, and 5 are rejected for the reasons given below; revisit only if measured session-accuracy data contradicts the current reasoning. Implementation scope is tracked separately in the session-continuity execution plan.
 
 The MVP combines **forward strict inheritance** (Option 1) with **back-propagation until conflict** (Option 4). Option 2 adds tuning complexity without clear wins. Option 3's time window is arbitrary. Option 5 alone misses easy accuracy gains.
 

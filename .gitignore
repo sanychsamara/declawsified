@@ -13,6 +13,9 @@ Arango.DB/
 packages/
 bak.xgr/
 __pycache__/
+.venv/
+.pytest_cache/
+*.egg-info/
 dataset/
 checkpoints*
 csv_results*

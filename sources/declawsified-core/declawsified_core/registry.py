@@ -1,0 +1,61 @@
+"""
+Facet + classifier registry.
+
+`FACETS` declares every facet the pipeline knows about, along with its arity
+(scalar vs array), minimum confidence for emission, and — for array facets —
+the cap on how many values may be emitted.
+
+`default_classifiers()` returns the list of classifier instances the MVP
+pipeline runs. Extending the pipeline means editing one of these two things:
+a facet entry or a classifier entry. Nothing else in the codebase needs to
+change.
+
+YAML-driven loading (per docs/plan-classification.md §1.2) is a later phase.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+from declawsified_core.facets.activity import ActivityRulesClassifier
+from declawsified_core.facets.base import FacetClassifier
+from declawsified_core.facets.context import ContextRulesClassifier
+from declawsified_core.facets.domain import DomainKeywordsClassifier
+from declawsified_core.facets.phase import PhaseSignalsClassifier
+from declawsified_core.facets.project import ProjectMetadataClassifier
+
+
+@dataclass(frozen=True)
+class FacetConfig:
+    """Per-facet configuration consumed by the aggregator."""
+
+    arity: Literal["scalar", "array"]
+    min_confidence: float = 0.5
+    default: str | list[str] = "unattributed"
+    top_n: int = 3  # only meaningful when arity == "array"
+
+
+FACETS: dict[str, FacetConfig] = {
+    "context":  FacetConfig(arity="scalar", default="business"),
+    "domain":   FacetConfig(arity="scalar"),
+    "activity": FacetConfig(arity="scalar"),
+    "project":  FacetConfig(arity="array", default=["unattributed"]),
+    "phase":    FacetConfig(arity="scalar"),
+}
+
+
+def default_classifiers() -> list[FacetClassifier]:
+    """The MVP mock classifier set — one per facet.
+
+    Adding a new classifier (or a new facet with its classifiers) means
+    appending here and, for a new facet, adding a FACETS entry above.
+    No other changes are required.
+    """
+    return [
+        ContextRulesClassifier(),
+        DomainKeywordsClassifier(),
+        ActivityRulesClassifier(),
+        ProjectMetadataClassifier(),
+        PhaseSignalsClassifier(),
+    ]
