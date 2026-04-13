@@ -181,6 +181,137 @@ Output tags (all dimensions, per-facet confidence):
   auto:confidence:phase:0.78
 ```
 
+#### Modular Pipeline Contract
+
+The classifier is intentionally designed as a **plugin architecture**. Adding a new facet classifier (whether for an existing facet or a brand-new facet) does not require any changes to upstream (ingest, prompt parser) or downstream (tag emission, storage, dashboards) code. This is the single most important architectural property for long-term maintainability -- the taxonomy will evolve, and we must not have to rewrite the pipeline every time.
+
+**Pipeline input** (fixed schema, shared by every classifier):
+
+```python
+class ClassifyInput(BaseModel):
+    call_id: str                           # unique per API call
+    session_id: str | None
+    timestamp: datetime
+    agent: str | None                      # "claude-code", "codex", ...
+    model: str | None
+    messages: list[Message]                # prompt + response
+    tool_calls: list[ToolCall]             # extracted from messages
+    request_tags: dict[str, str]           # LiteLLM tags (from headers)
+    team_alias: str | None                 # LiteLLM team
+    user_id: str | None
+    working_directory: str | None
+    git_context: GitContext | None         # repo, branch, ref
+    in_prompt: InPromptSignals             # parsed #tags, !commands
+    session_state: SessionState            # sticky values from prior calls
+    prior_classifications: list[Classification]  # for back-propagation
+```
+
+**Pipeline output** (fixed schema, independent of which classifiers are registered):
+
+```python
+class Classification(BaseModel):
+    facet: str                             # "context", "domain", "activity", "project", ...
+    value: str | list[str]                 # scalar or 1-d array (see §1.2 Facet arity)
+    confidence: float                      # 0.0 .. 1.0
+    source: str                            # which option/tier produced it (e.g. "optionB-git-branch", "tier3-llm")
+    classifier_name: str                   # "activity_classifier_v1", ...
+    alternatives: list[tuple[str, float]]  # runner-up values + confidences (for debugging)
+    metadata: dict                         # classifier-specific debug info
+
+class ClassifyResult(BaseModel):
+    call_id: str
+    classifications: list[Classification]  # one entry per classifier that fired
+    pipeline_version: str
+    latency_ms: int
+```
+
+**Classifier interface** (every classifier implements exactly this):
+
+```python
+class FacetClassifier(Protocol):
+    name: str                              # unique identifier, e.g. "activity_classifier_v1"
+    facet: str                             # which facet this classifier contributes to
+    arity: Literal["scalar", "array"]      # what the facet's value type is
+    tier: int                              # 1=rules, 2=ml, 3=llm (for cost/latency accounting)
+
+    async def classify(self, input: ClassifyInput) -> list[Classification]:
+        """Return zero, one, or more Classifications for this facet."""
+        ...
+```
+
+**Multiple classifiers per facet are allowed and encouraged.** For example, the `project` facet has six distinct classifiers (one per option A-F in §1.4). Each returns zero or more Classifications; the pipeline aggregator merges them into the final `ClassifyResult` using the facet's arity rule:
+
+- **Scalar facets**: pick the highest-confidence Classification; others move to `alternatives`
+- **Array facets**: emit all Classifications above the per-facet threshold (default 0.5), capped at top N by confidence (default N=3)
+
+**Pipeline orchestration** (aggregator logic, shared by all facets):
+
+```python
+async def run_pipeline(input: ClassifyInput, classifiers: list[FacetClassifier]) -> ClassifyResult:
+    # 1. Run all registered classifiers in parallel
+    all_results = await asyncio.gather(*[c.classify(input) for c in classifiers])
+
+    # 2. Group by facet
+    by_facet = defaultdict(list)
+    for classifications in all_results:
+        for c in classifications:
+            by_facet[c.facet].append(c)
+
+    # 3. Aggregate per facet based on arity
+    final = []
+    for facet, candidates in by_facet.items():
+        arity = get_facet_arity(facet)
+        if arity == "scalar":
+            winner, alternatives = resolve_scalar(candidates)
+            winner.alternatives = alternatives
+            final.append(winner)
+        else:  # array
+            final.extend(resolve_array(candidates, threshold=0.5, top_n=3))
+
+    return ClassifyResult(call_id=input.call_id, classifications=final, ...)
+```
+
+**Why this design**:
+
+1. **Adding a new classifier is an additive change** -- register it in the classifier list; no other code touches.
+2. **Adding a new facet is also additive** -- declare its arity in a registry, register its classifiers, done.
+3. **Removing a classifier** just drops it from the registry; other classifiers for the same facet continue working.
+4. **A/B testing** is trivial -- register v1 and v2 of the same classifier, compare their Classification outputs offline.
+5. **Per-facet telemetry** (latency, coverage, confidence distribution) comes for free because every classifier returns the same shape.
+
+**Registry format** (YAML, loaded at startup):
+
+```yaml
+# declawsified-pipeline.yaml
+facets:
+  context:   {arity: scalar, min_confidence: 0.5, default: business}
+  domain:    {arity: scalar, min_confidence: 0.5, default: unattributed}
+  activity:  {arity: scalar, min_confidence: 0.5, default: unattributed}
+  project:   {arity: array,  min_confidence: 0.5, top_n: 3, default: [unattributed]}
+  phase:     {arity: scalar, min_confidence: 0.5, default: unattributed}
+
+classifiers:
+  - {name: context_v1,                   facet: context,  tier: 1, module: declawsified_core.facets.context:SignalClassifier}
+  - {name: context_llm_v1,               facet: context,  tier: 3, module: declawsified_core.facets.context:LLMClassifier}
+  - {name: activity_rules_v1,            facet: activity, tier: 1, module: declawsified_core.facets.activity:RulesClassifier}
+  - {name: activity_keywords_v1,         facet: activity, tier: 2, module: declawsified_core.facets.activity:KeywordsClassifier}
+  - {name: activity_llm_v1,              facet: activity, tier: 3, module: declawsified_core.facets.activity:LLMClassifier}
+  - {name: project_explicit_v1,          facet: project,  tier: 1, module: declawsified_core.facets.project:ExplicitClassifier}
+  - {name: project_metadata_v1,          facet: project,  tier: 1, module: declawsified_core.facets.project:MetadataClassifier}
+  - {name: project_ticket_ref_v1,        facet: project,  tier: 2, module: declawsified_core.facets.project:TicketRefClassifier}
+  - {name: project_vocabulary_v1,        facet: project,  tier: 2, module: declawsified_core.facets.project:VocabularyClassifier}
+  - {name: project_tree_path_v1,         facet: project,  tier: 3, module: declawsified_core.facets.project:TreePathClassifier}
+  - {name: project_clustering_v1,        facet: project,  tier: 2, module: declawsified_core.facets.project:ClusteringClassifier}
+  - {name: project_session_continuity_v1, facet: project, tier: 1, module: declawsified_core.facets.project:SessionContinuityClassifier}
+  - {name: domain_team_metadata_v1,      facet: domain,   tier: 1, module: declawsified_core.facets.domain:TeamMetadataClassifier}
+  - {name: domain_keywords_v1,           facet: domain,   tier: 2, module: declawsified_core.facets.domain:KeywordsClassifier}
+  - {name: domain_llm_v1,                facet: domain,   tier: 3, module: declawsified_core.facets.domain:LLMClassifier}
+  - {name: phase_signals_v1,             facet: phase,    tier: 1, module: declawsified_core.facets.phase:SignalsClassifier}
+  - {name: phase_llm_v1,                 facet: phase,    tier: 3, module: declawsified_core.facets.phase:LLMClassifier}
+```
+
+To add a new custom facet (e.g., `billable` for consulting use cases), add two lines to `facets` and one classifier entry. No other changes required.
+
 #### Facet: `context` -- Personal or Business (WHAT KIND OF USE)
 
 This is the meta-facet. It runs first because it scopes the vocabulary of other facets (particularly `project` and `domain`). Same user, same machine can generate both personal and business calls; classifying each correctly unlocks every other facet.
