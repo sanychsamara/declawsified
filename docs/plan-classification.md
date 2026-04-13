@@ -8,24 +8,6 @@
 
 ---
 
-## Editor TODOs
-
-Use consistent language "classifier" in "1.2 MVP Facet Schema (5 Dimensions)". Replace all "Extractors" with "Classifiers"
-
-Remove numbering from facets ("Facet 0: context" should become just "Facet: context" )
-
-Remove "Mapping from the original 6 engineering categories" section
-
-Clarify that each facet classification will come with confidence value (0..1), this will be used for conflict resolution.
-
-Create explicit section on "Session continuity". Explore and propose options on how inheritance of values from session would work, how conflicts would be resolved. Consider options on propagating values detected with strong confidence "back into the past" (with a limit by time or until a value with a different confidence found). 
-
-Add note that facets values could be scalar (domain, activity) or 1-d array (projects). Allowing multiple projects per prompt makes project discovery easier (we can implement ALL options for personal project detection, and then pick 2 options with highest confidence above a certain threshold)
-
-Create a modular design for classificatin pipeline. Pipeline returns a standard response with a list of facet/value/confidence, adding new facet classifiers to the pipeline does not change up or downstream code. 
-
-Rewrite "### 1.8 Multi-Dimensional Tag Output Format" classification output should be saved to SQL-based storage (support both PostreSQL and DuckDB)
-
 ## Table of Contents
 
 1. [Classification Taxonomy Design](#1-classification-taxonomy-design)
