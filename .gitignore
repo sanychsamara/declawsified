@@ -39,4 +39,5 @@ passwords*
 .vscode/
 
 .favorites.json
-
+.obsidian*
+data*
