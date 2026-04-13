@@ -41,6 +41,7 @@
 ## Table of Contents
 
 1. [Classification Taxonomy Design](#1-classification-taxonomy-design)
+   - [Core Design Principles](#core-design-principles)
    - [1.1 The Problem with a Single Flat Taxonomy](#11-the-problem-with-a-single-flat-taxonomy)
    - [1.2 Faceted Classification: The Architectural Foundation](#12-faceted-classification-the-architectural-foundation)
    - [1.3 MVP Facet Schema (6 Dimensions)](#13-mvp-facet-schema-6-dimensions) -- context, domain, activity, project, artifact, phase
@@ -59,6 +60,36 @@
 
 ---
 ## 1. Classification Taxonomy Design
+
+### Core Design Principles
+
+Research (see `research-*.md` in this folder) settled three principles that drive every downstream design choice. We surface them here because the rest of this section is their elaboration; everything else flows from these.
+
+**Principle 1: No single taxonomy can satisfy all use cases.**
+
+AI agent work spans software engineering at a FAANG, legal review at a law firm, campaign planning at a marketing agency, homework at a university, medical research at a hospital, and meal planning at a kitchen table. A taxonomy tuned for one flattens the others. A taxonomy generic enough to cover all of them is too coarse for any. The classifier must therefore represent work along **multiple independent axes** instead of one deep hierarchy.
+
+**Principle 2: Faceted classification with 5-6 fixed facets is a reasonable starting point.**
+
+Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 6 facets: `context`, `domain`, `activity`, `project`, `artifact`, `phase`. Each is independently extracted, so a single API call produces 6 tags rather than one. Per §1.7, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
+
+Facets are **fixed** in the MVP -- we do not let users add custom facets in v1. Custom facets (Workday Foundation Data Model style) are a post-MVP extension. Fixed facets keep the cognitive model simple, the classifier training surface bounded, and the analytics stable.
+
+**Principle 3: Facets can be extended with "domain packs" -- primarily the `activity` facet, and in principle any facet.**
+
+The 10 universal activities (investigating, building, improving, verifying, researching, planning, communicating, configuring, reviewing, coordinating) work across every knowledge domain. But a law firm billing under UTBMS codes wants `legal:C200 Researching Law` not just `activity:researching`. A GitHub-using engineering team wants `engineering:commit-type:fix` not just `activity:investigating`.
+
+Domain packs (§1.4) are optional YAML overlays shipped with the tool (engineering, legal, marketing, research, finance) that add domain-specific sub-activities underneath the universal 10. Users install packs relevant to their org; the universal taxonomy continues to work on everyone's calls regardless of what packs are active.
+
+**Can packs enhance facets other than `activity`?** Architecturally yes -- the pack schema supports extensions to any facet. Practical examples:
+- **Artifact**: Legal pack could add `artifact:legal-document:contract`, `artifact:legal-document:brief`, `artifact:legal-document:motion` under a generic `legal-document` type. Engineering already benefits from the universal artifact values (source, test, config, infra).
+- **Phase**: Legal litigation has its own phase vocabulary -- `phase:pleading`, `phase:discovery-L300`, `phase:trial`, `phase:appeal` -- distinct from the universal software-style phases (discovery, implementation, review, deployment, maintenance).
+
+For MVP, packs extend only `activity`. Extending to `artifact` and `phase` is post-MVP, called out here because the data model is designed to accommodate it.
+
+---
+
+What follows details the facet schema, the ready-made domain packs, project and context detection, how the system outputs structured tags, how it produces combinatorial insights, how the taxonomy evolves over time, pre-configured profiles for different organizational settings, and the in-prompt communication layer users have for direct classifier control.
 
 ### 1.1 The Problem with a Single Flat Taxonomy
 
