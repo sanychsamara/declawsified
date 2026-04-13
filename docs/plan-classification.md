@@ -8,6 +8,24 @@
 
 ---
 
+## Editor TODOs
+
+Use consistent language "classifier" in "1.2 MVP Facet Schema (5 Dimensions)". Replace all "Extractors" with "Classifiers"
+
+Remove numbering from facets ("Facet 0: context" should become just "Facet: context" )
+
+Remove "Mapping from the original 6 engineering categories" section
+
+Clarify that each facet classification will come with confidence value (0..1), this will be used for conflict resolution.
+
+Create explicit section on "Session continuity". Explore and propose options on how inheritance of values from session would work, how conflicts would be resolved. Consider options on propagating values detected with strong confidence "back into the past" (with a limit by time or until a value with a different confidence found). 
+
+Add note that facets values could be scalar (domain, activity) or 1-d array (projects). Allowing multiple projects per prompt makes project discovery easier (we can implement ALL options for personal project detection, and then pick 2 options with highest confidence above a certain threshold)
+
+Create a modular design for classificatin pipeline. Pipeline returns a standard response with a list of facet/value/confidence, adding new facet classifiers to the pipeline does not change up or downstream code. 
+
+Rewrite "### 1.7 Multi-Dimensional Tag Output Format" classification output should be saved to SQL-based storage (support both PostreSQL and DuckDB)
+
 ## Table of Contents
 
 1. [Classification Taxonomy Design](#1-classification-taxonomy-design)
@@ -105,13 +123,13 @@ Every API call is classified along all 5 dimensions simultaneously. Each facet h
 API Call arrives
     |
     v
-+-- Facet Extractors (independent, parallel) --------+
++-- Facet Classifiers (independent, parallel) -------+
 |                                                      |
-|  [context_classifier]  -> context=business           |
-|  [agent_extractor]     -> agent=claude-code          |
+|  [context_classifier]  -> context=business (1.00)    |
+|  [agent_classifier]    -> agent=claude-code (1.00)   |
 |  [activity_classifier] -> activity=debugging (0.91)  |
-|  [domain_extractor]    -> domain=engineering         |
-|  [project_extractor]   -> project=auth-service       |
+|  [domain_classifier]   -> domain=engineering (0.95)  |
+|  [project_classifier]  -> project=auth-service (0.88)|
 |  [phase_classifier]    -> phase=maintenance (0.78)   |
 |                                                      |
 +-- Optional: Cross-Facet Correlation Layer -----------+
@@ -218,32 +236,6 @@ This is the original "work type" classifier, now one facet among five. The value
 
 **Why 10 universal activities instead of 6 engineering-specific ones**: The UTBMS legal billing standard (A101-A128) has been production-validated for 25+ years across thousands of law firms. When we map their 28 activity codes to our system, they collapse to these same 10 categories. O*NET's 41 Generalized Work Activities similarly reduce to these clusters. This is not accidental -- these represent fundamental modes of knowledge work.
 
-**Mapping from the original 6 engineering categories**:
-
-| Original    | New Universal   | Notes                                          |
-| ----------- | --------------- | ---------------------------------------------- |
-| debugging   | `investigating` | Same action, domain-neutral name               |
-| feature-dev | `building`      | Same action, domain-neutral name               |
-| refactoring | `improving`     | Same action, domain-neutral name               |
-| testing     | `verifying`     | Same action, domain-neutral name               |
-| research    | `researching`   | Same action, already domain-neutral            |
-| devops      | `configuring`   | Same action, domain-neutral name               |
-| (new)       | `planning`      | Was missing -- critical for PM, legal, product |
-| (new)       | `communicating` | Was missing -- significant AI use case         |
-| (new)       | `reviewing`     | Was missing -- code review, document review    |
-| (new)       | `coordinating`  | Was missing -- cross-team work, project mgmt   |
-
-**Bloom's cognitive level as an optional sub-dimension of activity**:
-
-| Bloom's Level | Maps To | AI Agent Pattern |
-|---------------|---------|------------------|
-| Remember | `researching` | Information retrieval, lookup |
-| Understand | `researching` | Summarization, explanation |
-| Apply | `building`, `configuring` | Template application, procedure execution |
-| Analyze | `investigating`, `reviewing` | Debugging, data analysis, comparison |
-| Evaluate | `reviewing`, `verifying` | Code review, quality assessment |
-| Create | `building`, `planning` | New code, designs, strategies |
-
 #### Facet 3: `project` -- Work Initiative (WHAT ARE WE WORKING TOWARD)
 
 Automatic project detection -- not deferred to post-MVP. This is the facet that answers "where is the money going?" and every enterprise buyer needs it from day 1.
@@ -334,7 +326,7 @@ The same 5 facets apply across both contexts -- only the values change. There is
 | `domain` | engineering, legal, marketing, ... | (less relevant; can default to `life`) |
 | `phase` | discovery, implementation, review, ... | (less structured in personal use) |
 
-This is not a pack -- there is no "personal pack" to activate. Context detection (§1.2) does the switch automatically. The content below describes **what personal project values look like** and **how they get discovered**.
+Context detection (§1.2) does the switch automatically. The content below describes **what personal project values look like** and **how they get discovered**.
 
 #### Default Personal Projects (10 Life Areas)
 
@@ -538,17 +530,6 @@ This approach is validated by extensive academic precedent:
 | Spotify / Every Noise at Once | ~6,291 genres | Listening co-occurrence clusters → names | Clustering-then-labeling is viable alternative |
 | Microsoft Academic Graph | 700K fields, 5 levels | Hierarchical classifier + subsumption | Large taxonomy + classifier works |
 | Amazon product classifier | 3M SKUs | Deep hierarchical BERT + LLM dual-expert | 91.6% accuracy on 3rd tier |
-
-**Why tree-path classification beats pure clustering** (Section's previous HDBSCAN-only approach):
-
-| Property | Pure Clustering (HDBSCAN) | Tree-Path Classification |
-|----------|--------------------------|--------------------------|
-| Cold start | Need 20+ calls to form clusters | Works from call #1 |
-| Interpretability | Unlabeled clusters require naming | Paths are human-readable |
-| Cross-user comparability | Cluster IDs are user-specific | Same taxonomy paths across users |
-| Stability | Cluster IDs change as data grows | Paths are stable |
-| Cross-customer learning | Requires shared embedding space | Direct path-level aggregation (k-anonymity) |
-| Novel pattern detection | Excellent | Requires taxonomy expansion mechanism |
 
 **Conclusion**: Tree-path classification is the **primary mechanism**. HDBSCAN clustering is retained as a **secondary mechanism for taxonomy expansion** (discovering paths the taxonomy doesn't yet have).
 
@@ -1242,18 +1223,6 @@ Periodically (weekly/monthly), run taxonomy health check:
 3. Apply four operations: rename (clarity), merge (redundant values), split (overloaded values), rearrange (misplaced values)
 4. Key finding: **taxonomies refined to align with actual classifier confusion patterns improve F1 by +2.9 points**
 
-#### Custom Facets
-
-Following Workday's model (supports 15 custom worktag types), allow organizations to define additional facets beyond the core 5. Examples:
-
-- `cost_center` -- maps to accounting codes
-- `client` -- for agencies/consultancies billing multiple clients
-- `compliance_scope` -- for regulated industries (HIPAA, SOX, GDPR)
-- `priority` -- urgent/normal/low
-- `billable` -- yes/no (critical for professional services)
-
-Custom facets can be rule-based (derived from project registry) or LLM-classified.
-
 #### Balanced Tree Construction (When Subcategories Are Needed)
 
 From the eXtreme Multi-Label classification literature, use **Positive Instance Feature Aggregation (PIFA)**:
@@ -1493,36 +1462,27 @@ The multi-line anchor (`(?m)^`) is critical: prose flows around commands in mult
 
 **MVP command vocabulary**:
 
-| Command | Purpose | Example |
-|---------|---------|---------|
-| `!context <personal\|business>` | Force context for this call and session | `!context personal` |
-| `!project <name>` | Assign project (this call + session) | `!project auth-service` |
-| `!new-project <name> [key=val ...]` | Declare and register new project | `!new-project patent-q3 domain=legal cost_center=LEG-07` |
-| `!activity <value>` | Override activity classification | `!activity improving` |
-| `!domain <value>` | Override domain classification | `!domain legal` |
-| `!phase <value>` | Override phase | `!phase discovery` |
-| `!goal <description>` | Attach goal/task description | `!goal migrate auth to OAuth2` |
-| `!correct <facet>=<value>` | Correct prior classification | `!correct activity=improving` |
-| `!tag <tag>` | Add arbitrary tag | `!tag urgent` |
-| `!untag <tag>` | Remove tag | `!untag urgent` |
-| `!no-classify` | Skip classification for this call | `!no-classify` |
-| `!pack <name>[,<name>]` | Activate pack(s) for this call only | `!pack legal` |
-| `!pack off [<name>]` | Disable pack(s) for this call | `!pack off` |
-| `!pack-default <name>` | Set default pack(s) for current project | `!pack-default legal,research` |
-| `!pack-auto <on\|off>` | Toggle auto-suggestion acceptance | `!pack-auto on` |
-| `!pack-no-thanks <name>` | Decline pack suggestion (30-day cooldown) | `!pack-no-thanks marketing` |
-| `!subarea <parent>/<name>` | Create or assign personal sub-area | `!subarea fun-hobbies/gardening` |
-| `!specialization install <name>` | Import community specialization template | `!specialization install gardening` |
-| `!help` | Out-of-band help (doesn't reach LLM) | `!help` |
+| Command                          | Purpose                                  | Example                             |
+| -------------------------------- | ---------------------------------------- | ----------------------------------- |
+| `!context <personal\|business>`  | Force context for this call and session  | `!context personal`                 |
+| `!project <name>`                | Assign project (this call + session)     | `!project auth-service`             |
+| `!activity <value>`              | Override activity classification         | `!activity improving`               |
+| `!domain <value>`                | Override domain classification           | `!domain legal`                     |
+| `!phase <value>`                 | Override phase                           | `!phase discovery`                  |
+| `!tag <tag>`                     | Add arbitrary tag                        | `!tag urgent`                       |
+| `!untag <tag>`                   | Remove tag                               | `!untag urgent`                     |
+| `!no-classify`                   | Skip classification for this call        | `!no-classify`                      |
+| `!subarea <parent>/<name>`       | Create or assign personal sub-area       | `!subarea fun-hobbies/gardening`    |
+| `!help`                          | Out-of-band help (doesn't reach LLM)     | `!help`                             |
 
 **Tag-to-command equivalence table**:
 
-| Inline tag | Equivalent command | Notes |
-|-----------|-------------------|-------|
-| `#project:X` | `!project X` | Same effect |
+| Inline tag      | Equivalent command              | Notes                      |
+| --------------- | ------------------------------- | -------------------------- |
+| `#project:X`    | `!project X`                    | Same effect                |
 | `#X` (freeform) | `!project X` if X is registered | Otherwise logged as signal |
-| `#activity:X` | `!activity X` | Same effect |
-| `#urgent` | `!tag urgent` | Generic tag |
+| `#activity:X`   | `!activity X`                   | Same effect                |
+
 
 Users can mix styles freely -- inline tags feel natural, line-anchored commands are more explicit.
 
@@ -1995,7 +1955,7 @@ Context:
 #### Cascade Flow (Per Facet, Parallel Across Facets)
 
 ```
-Call arrives -> All facet extractors run in parallel
+Call arrives -> All facet classifiers run in parallel
   |
   |   CONTEXT facet          ACTIVITY facet           DOMAIN facet         PROJECT facet
   |   (signals + override)   (cascade)                (cascade)            (mostly rules)
