@@ -524,9 +524,36 @@ personal-project-vocab:
 
 Rules for scoring are the same as business domain signals (strong/medium/weak with TF-IDF-style normalization) -- see the Pack Auto-Detection content later in this section for the shared algorithm.
 
-##### Personal Projects Discovery: Tree-Path Classification Against a Hybrid Taxonomy
+##### Personal Projects Discovery
 
-The core problem: **how do we let a user's individual areas emerge without burdening them with taxonomy management?** We've established that fixed taxonomies are too rigid and pure clustering produces unlabeled, unstable output. Academic research on Pinterest's Pin2Interest, Netflix's altgenres, and Amazon's hierarchical product classification points to a superior approach:
+The core problem: **how do we let a user's individual projects emerge without burdening them with taxonomy management?** No single mechanism handles this well. Research across Pinterest, Netflix, Spotify, Microsoft Academic Graph, and Amazon settled on a **stack of complementary mechanisms**, each with different strengths. Several of these mechanisms are shared with Business Projects Discovery (§1.4 via context=business); the personal context just uses different vocabularies and different default taxonomies.
+
+**The stack (in priority order; highest confidence first):**
+
+| Option | Mechanism | Cost | Coverage | Shared with Business? |
+|--------|-----------|------|----------|-----------------------|
+| **A** | User explicit declaration (`!project`, `!new-project`, `#project:X`) | ~0 | 5-15% of calls (power users) | Yes |
+| **B** | Workdir / file-path pattern matching | ~0 | 20-40% when user organizes files | Yes (different patterns) |
+| **C** | Default life-area vocabulary matching | ~0 | 40-60% when prompt uses common terms | Personal-specific |
+| **D** | Tree-path classification against hybrid taxonomy | Tier-3 LLM, ~$0.0003/call | 70-90% including novel terms | Yes (different subtrees) |
+| **E** | HDBSCAN clustering for novel patterns -> Neural Taxonomy Expansion | Tier-2 ML, ~0 per call but requires ~20+ calls | Fallback for unattributed | Yes |
+| **F** | Session continuity (inherit from previous calls in session) | ~0 | Catches subsequent calls in same session | Yes |
+
+Options A and B run first (cheapest, highest confidence); if they produce a match, stop. Otherwise, C narrows to one of the 10 default life areas. D handles the long tail using shared hybrid taxonomy walk. E handles novel patterns that don't fit existing taxonomy. F smooths across calls.
+
+Options A, B, D, E, and F are mechanically identical to the equivalents in Business Projects Discovery (§1.4) -- only the vocabularies and taxonomy subtrees differ. See §1.4 for the shared mechanics. Option C is the personal-specific fallback, detailed next.
+
+###### Option C: Default Life-Area Vocabulary Matching (personal-specific)
+
+When Options A and B don't produce a match, the classifier scores the prompt against per-project vocabulary inventories for the 10 default life areas (Default Personal Projects above). Strong/medium/weak vocabulary signals with TF-IDF-style normalization, plus exclusion signals. Call is assigned to whichever life area wins.
+
+This option is cheap, deterministic, and works from call #1 without any setup. Its ceiling is the 10 default areas -- a user deeply invested in a specific hobby (e.g., gardening) gets classified as `fun-hobbies` not `fun-hobbies/gardening`. Option D (tree-path) handles that depth.
+
+###### Option D: Tree-Path Classification Against a Hybrid Taxonomy (shared with business)
+
+The mechanism detailed below is also used by Business Projects Discovery (§1.4) with a different subtree (engineering / legal / finance / marketing sub-projects). For personal, the subtree is rooted at life areas with deep hobby/interest sub-paths (e.g., `fun-hobbies/sports/soccer/arsenal`).
+
+We've established that fixed taxonomies are too rigid on their own and pure clustering produces unlabeled, unstable output. Academic research on Pinterest's Pin2Interest, Netflix's altgenres, and Amazon's hierarchical product classification points to a superior approach:
 
 **Classify each prompt into paths in a large hierarchical taxonomy, then infer user areas from path frequency and stability.**
 
