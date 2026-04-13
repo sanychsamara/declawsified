@@ -76,7 +76,7 @@ Architecturally, the pack schema supports extending other facets too (e.g., the 
 
 The `project` facet's values and discovery mechanisms differ between contexts. In **business context**, projects are specific named initiatives (`auth-service`, `patent-q3-filings`) discovered primarily from structured metadata: LiteLLM team/key assignments, git repositories, branch names, ticket references in prompts. In **personal context**, projects are ongoing life areas (`health`, `finances`, `marathon-training`) discovered primarily from vocabulary matching, working-directory patterns, and tree-path classification against a hybrid taxonomy.
 
-The facet schema is the same across contexts (same 5 facets, same tag namespace). What differs is the **discovery stack** -- see §1.4 for the shared mechanisms and the context-specific variants. Context itself (§1.2 Facet 0) is detected automatically from signals and can be overridden with `!context`.
+The facet schema is the same across contexts (same 5 facets, same tag namespace). What differs is the **discovery stack** -- see §1.4 for the shared mechanisms and the context-specific variants. Context itself (§1.2 `context`) is detected automatically from signals and can be overridden with `!context`.
 
 ---
 
@@ -153,7 +153,7 @@ Output tags (all dimensions, per-facet confidence):
   auto:confidence:phase:0.78
 ```
 
-#### Facet 0: `context` -- Personal or Business (WHAT KIND OF USE)
+#### Facet: `context` -- Personal or Business (WHAT KIND OF USE)
 
 This is the meta-facet. It runs first because it scopes the vocabulary of other facets (particularly `project` and `domain`). Same user, same machine can generate both personal and business calls; classifying each correctly unlocks every other facet.
 
@@ -192,7 +192,7 @@ This is the meta-facet. It runs first because it scopes the vocabulary of other 
 
 See §1.3 for the personal-context project vocabulary (the 10 default life areas used as project identifiers when context=personal) and the tree-path discovery mechanism for growing that vocabulary.
 
-#### Facet 1: `domain` -- Organizational Function (WHAT PART OF THE BUSINESS)
+#### Facet: `domain` -- Organizational Function (WHAT PART OF THE BUSINESS)
 
 This is the highest-value facet for enterprises. It answers: "Which department's budget does this AI cost belong to?"
 
@@ -215,7 +215,7 @@ This is the highest-value facet for enterprises. It answers: "Which department's
 
 **Extraction strategy**: Primarily from team/user metadata already flowing through LiteLLM (team tags, virtual key assignment). Fallback to content-based classification using domain vocabulary.
 
-#### Facet 2: `activity` -- Work Activity Type (WHAT KIND OF ACTION)
+#### Facet: `activity` -- Work Activity Type (WHAT KIND OF ACTION)
 
 This is the original "work type" classifier, now one facet among five. The values need to work across ALL domains, not just engineering.
 
@@ -236,11 +236,11 @@ This is the original "work type" classifier, now one facet among five. The value
 
 **Why 10 universal activities instead of 6 engineering-specific ones**: The UTBMS legal billing standard (A101-A128) has been production-validated for 25+ years across thousands of law firms. When we map their 28 activity codes to our system, they collapse to these same 10 categories. O*NET's 41 Generalized Work Activities similarly reduce to these clusters. This is not accidental -- these represent fundamental modes of knowledge work.
 
-#### Facet 3: `project` -- Work Initiative (WHAT ARE WE WORKING TOWARD)
+#### Facet: `project` -- Work Initiative (WHAT ARE WE WORKING TOWARD)
 
 Automatic project detection -- not deferred to post-MVP. This is the facet that answers "where is the money going?" and every enterprise buyer needs it from day 1.
 
-**Personal-context values**: When `context=personal` (§1.2 Facet 0), `project` values are personal projects: default life areas (health, finances, etc.) or user-declared personal initiatives (marathon-training, home-renovation-2026). Same facet, different vocabulary. See §1.3 Personal Context subsection for the default values and discovery mechanism.
+**Personal-context values**: When `context=personal` (§1.2 `context`), `project` values are personal projects: default life areas (health, finances, etc.) or user-declared personal initiatives (marathon-training, home-renovation-2026). Same facet, different vocabulary. See §1.3 Personal Context subsection for the default values and discovery mechanism.
 
 **Detection hierarchy (most specific wins)**:
 
@@ -281,7 +281,7 @@ projects:
 
 When no registry exists, projects are auto-detected from git repository names and working directory paths, then surfaced to the user for confirmation and enrichment.
 
-#### Facet 4: `phase` -- Work Lifecycle Position (WHEN IN THE PROCESS)
+#### Facet: `phase` -- Work Lifecycle Position (WHEN IN THE PROCESS)
 
 | Value | Description | Detection Signal |
 |-------|-------------|------------------|
@@ -312,10 +312,10 @@ When no registry exists, projects are auto-detected from git repository names an
 
 ### 1.3 Personal Context Taxonomy
 
-> **Note on domain packs**: The industry-specific domain packs (engineering, legal, marketing, research, finance, personal/education) that refine the `activity` facet with domain-specific sub-activities -- along with pack auto-detection, activation state machine, and conflict resolution -- are documented in [`plan-domain-packs.md`](./plan-domain-packs.md). This section covers the personal-context project taxonomy and vocabulary, which applies when `context=personal` (§1.2 Facet 0).
+> **Note on domain packs**: The industry-specific domain packs (engineering, legal, marketing, research, finance, personal/education) that refine the `activity` facet with domain-specific sub-activities -- along with pack auto-detection, activation state machine, and conflict resolution -- are documented in [`plan-domain-packs.md`](./plan-domain-packs.md). This section covers the personal-context project taxonomy and vocabulary, which applies when `context=personal` (§1.2 `context`).
 
 
-When `context=personal` (see §1.2 Facet 0), the `project` facet uses a different vocabulary than business. Instead of specific work initiatives (auth-service, patent-q3), personal projects are ongoing life areas (health, finances, relationships) plus any user-declared personal initiatives (marathon-training, home-renovation-2026, etc.).
+When `context=personal` (see §1.2 `context`), the `project` facet uses a different vocabulary than business. Instead of specific work initiatives (auth-service, patent-q3), personal projects are ongoing life areas (health, finances, relationships) plus any user-declared personal initiatives (marathon-training, home-renovation-2026, etc.).
 
 The same 5 facets apply across both contexts -- only the values change. There is no separate personal "area" facet; `project` handles it uniformly:
 
@@ -1111,7 +1111,7 @@ Activity discovery is driven by three categories of signals, applied at each tie
 
 - **Tool invocation patterns**: running `pytest` -> `verifying`; `terraform apply` -> `configuring`; heavy `Read`/`Grep` with few `Edit` -> `researching`; `git commit` preceded by `Edit` -> `building` or `improving` (disambiguate via commit-type keywords)
 - **File-path patterns**: `*_test.*` / `*_spec.*` -> `verifying`; `Dockerfile` / `.github/` / `terraform/` -> `configuring`; `README.md`, `*.md` in `docs/` -> `communicating`
-- **Prompt keywords**: activity-specific vocabulary (see §1.2 Facet 2 activity table for full lists)
+- **Prompt keywords**: activity-specific vocabulary (see §1.2 Facet `activity` table for full lists)
 
 #### Domain Pack Refinement
 
@@ -1354,7 +1354,7 @@ project_detection: enabled (both contexts; different vocabularies)
 session_split: automatic                    # session can contain both contexts, classified per-call
 ```
 
-**Key behavior**: The context classifier (§1.2 Facet 0) runs first. Business calls get business-pack sub-activity classification and business-project vocabulary. Personal calls get the personal-project vocabulary (life-area defaults + tree-path discovery). Same user, same session, classified per-call.
+**Key behavior**: The context classifier (§1.2 `context`) runs first. Business calls get business-pack sub-activity classification and business-project vocabulary. Personal calls get the personal-project vocabulary (life-area defaults + tree-path discovery). Same user, same session, classified per-call.
 
 #### Profile: Student
 
