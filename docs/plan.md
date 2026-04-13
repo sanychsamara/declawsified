@@ -520,7 +520,7 @@ declawsified/                         # Repository root
 |   |   |   |   |-- loader.py         # Load pack YAML from declawsified-data
 |   |   |   |   |-- detector.py       # Per-pack signal scoring
 |   |   |   |   `-- state_machine.py  # INACTIVE/SUGGESTED/ACTIVE
-|   |   |   |-- taxonomy/             # Tree-path classification (plan-classification.md §1.3)
+|   |   |   |-- taxonomy/             # Tree-path classification (plan-classification.md §1.4)
 |   |   |   |   |-- __init__.py
 |   |   |   |   |-- tree.py           # SKOS-compatible tree
 |   |   |   |   |-- index.py          # HNSW retrieval (Tier 1)

@@ -46,13 +46,15 @@
    - [1.2 MVP Facet Schema (5 Dimensions)](#12-mvp-facet-schema-5-dimensions) -- context, domain, activity, project, phase
    - [1.3 Domain-Specific Activity Taxonomies (Industry Packs)](#13-domain-specific-activity-taxonomies-industry-packs) -- engineering, legal, marketing, research, finance, personal
    - [1.4 Project Discovery](#14-project-discovery) -- shared stack, personal-specific, business-specific
-   - [1.5 Multi-Dimensional Tag Output Format](#15-multi-dimensional-tag-output-format)
-   - [1.6 The Combinatorial Power](#16-the-combinatorial-power-why-this-matters)
-   - [1.7 Taxonomy Evolution Strategy](#17-taxonomy-evolution-strategy)
-   - [1.8 Taxonomy Library: Starting Points by Setting](#18-taxonomy-library-starting-points-by-setting) -- solo dev, startup, enterprise, law firm, agency, university
-   - [1.9 Cross-Dimensional Intelligence](#19-cross-dimensional-intelligence)
-   - [1.10 In-Prompt Communication Layer](#110-in-prompt-communication-layer) -- `#tags` and `!commands` for power users
-   - [1.11 Academic Foundations](#111-academic-foundations-for-this-design)
+   - [1.5 Activity Discovery](#15-activity-discovery)
+   - [1.6 Domain Discovery](#16-domain-discovery)
+   - [1.7 Multi-Dimensional Tag Output Format](#17-multi-dimensional-tag-output-format)
+   - [1.8 The Combinatorial Power](#18-the-combinatorial-power-why-this-matters)
+   - [1.9 Taxonomy Evolution Strategy](#19-taxonomy-evolution-strategy)
+   - [1.10 Taxonomy Library: Starting Points by Setting](#110-taxonomy-library-starting-points-by-setting) -- solo dev, startup, enterprise, law firm, agency, university
+   - [1.11 Cross-Dimensional Intelligence](#111-cross-dimensional-intelligence)
+   - [1.12 In-Prompt Communication Layer](#112-in-prompt-communication-layer) -- `#tags` and `!commands` for power users
+   - [1.13 Academic Foundations](#113-academic-foundations-for-this-design)
 2. [Classification Engine: Research & Approach](#2-classification-engine-research--approach)
 3. [Classification Technique Cost Analysis](#3-classification-technique-cost-analysis)
 4. [Memory & Taxonomy System Research](#4-memory--taxonomy-system-research)
@@ -70,7 +72,7 @@ AI agent work spans software engineering at a FAANG, legal review at a law firm,
 
 **Principle 2: Faceted classification with 5-6 fixed facets is a reasonable starting point.**
 
-Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 5 facets: `context`, `domain`, `activity`, `project`, `phase`. Each is independently extracted, so a single API call produces 5 tags rather than one. Per §1.6, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
+Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 5 facets: `context`, `domain`, `activity`, `project`, `phase`. Each is independently extracted, so a single API call produces 5 tags rather than one. Per §1.8, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
 
 Facets are **fixed** in the MVP -- we do not let users add custom facets in v1. Custom facets (Workday Foundation Data Model style) are a post-MVP extension. Fixed facets keep the cognitive model simple, the classifier training surface bounded, and the analytics stable.
 
@@ -193,7 +195,7 @@ This is the meta-facet. It runs first because it scopes the vocabulary of other 
 | Pronouns: "I/me/my/my wife/my kid" | personal | Strong (needs prompt reading) |
 | Pronouns: "we/our team/our customer" | business | Strong (needs prompt reading) |
 
-**Override via in-prompt command**: `!context personal` or `!context business` forces the classifier for the current call and session (see §1.10).
+**Override via in-prompt command**: `!context personal` or `!context business` forces the classifier for the current call and session (see §1.12).
 
 **Decision rule**: Sum weighted signals. If `personal_score > business_score + 0.3` -> `context=personal`. Otherwise -> `context=business` (the safer default for enterprise deployments). Ambiguous calls get tagged with lower confidence; users can correct via `!correct context=personal`.
 
@@ -807,7 +809,7 @@ Pack switching is **automatic and invisible** when driven by project detection. 
 
 ##### Explicit Pack Commands
 
-For power users and edge cases, the in-prompt command layer (§1.10) supports pack control:
+For power users and edge cases, the in-prompt command layer (§1.12) supports pack control:
 
 | Command | Effect |
 |---------|--------|
@@ -1005,7 +1007,7 @@ def detect_project(call_metadata: dict, project_registry: dict) -> str:
     Returns project identifier. Runs as part of Facet 3 extraction.
     Priority order ensures most-specific signal wins.
     """
-    # Priority 0: In-prompt command (100% confidence, see §1.10)
+    # Priority 0: In-prompt command (100% confidence, see §1.12)
     #   User typed: !project auth-service   OR   #project:auth-service
     if prompt_command := extract_project_from_prompt(call_metadata.get("messages")):
         register_if_new(prompt_command, project_registry)
@@ -1047,7 +1049,7 @@ def detect_project(call_metadata: dict, project_registry: dict) -> str:
     return "unattributed"
 ```
 
-**Note on Priority 0**: User-typed tags and commands in the prompt text are the **highest-priority signal** because they represent direct, intentional user communication. The in-prompt layer (§1.10) gives users the lowest-friction way to override automatic detection when they know better than the signals.
+**Note on Priority 0**: User-typed tags and commands in the prompt text are the **highest-priority signal** because they represent direct, intentional user communication. The in-prompt layer (§1.12) gives users the lowest-friction way to override automatic detection when they know better than the signals.
 
 #### Session-Level Project Tracking
 
@@ -1683,7 +1685,73 @@ The same algorithm runs for work packs, with these differences:
 
 Post-MVP, work packs inherit this dynamic discovery mechanism for domain-specific sub-activities.
 
-### 1.5 Multi-Dimensional Tag Output Format
+### 1.5 Activity Discovery
+
+Activity classification answers "what kind of work is happening?" (investigating, building, improving, verifying, researching, planning, communicating, configuring, reviewing, coordinating). Unlike Project Discovery, which has the biggest personal/business divergence, Activity Discovery is near-identical across contexts -- the same 10 universal activities apply to everyone.
+
+#### Discovery Stack
+
+| Option | Mechanism | Cost | Coverage |
+|--------|-----------|------|----------|
+| **A** | User explicit declaration (`!activity <value>`, `#activity:X`) | ~0 | 1-5% of calls (rare unless correcting a misclassification) |
+| **B** | Metadata signals: git branch prefix (`fix/`, `feature/`, `refactor/`), tool patterns (test-runner invocation, debugger), file path patterns (`*_test.*` suggests verifying) | ~0 | 25-35% of calls with high precision when signals present |
+| **C** | Keyword matching against the 10 universal activity vocabularies (error/bug/fix for investigating; implement/create for building; etc.) | ~0 | 40-55% |
+| **D** | LLM micro-classifier (Tier-3 slot-filling prompt, fills activity + domain + phase in one call) | ~$0.0003/call | 85-95% |
+| **E** | Domain pack sub-activity refinement (when a pack is active, the pack's sub-activity taxonomy is applied on top) | ~0 | Refines tagged activities to pack-specific sub-activities |
+| **F** | Session temporal pattern (activity often persists; long debugging session stays `investigating`) | ~0 | Smooths sequential calls |
+
+The activity cascade is A -> B -> C -> D (LLM fallback for ambiguous cases). E runs after an activity is assigned to map it to pack-specific sub-activities if a pack is active. F acts as a smoothing pass across session calls.
+
+Most activity classifications resolve in B or C (free tiers). LLM fallback (D) is triggered for the 30-50% of calls where rules and keywords produce low confidence. See §2 (Classification Engine) for the full tier cascade and cost analysis.
+
+#### Key Signals
+
+Activity discovery is driven by three categories of signals, applied at each tier:
+
+- **Tool invocation patterns**: running `pytest` -> `verifying`; `terraform apply` -> `configuring`; heavy `Read`/`Grep` with few `Edit` -> `researching`; `git commit` preceded by `Edit` -> `building` or `improving` (disambiguate via commit-type keywords)
+- **File-path patterns**: `*_test.*` / `*_spec.*` -> `verifying`; `Dockerfile` / `.github/` / `terraform/` -> `configuring`; `README.md`, `*.md` in `docs/` -> `communicating`
+- **Prompt keywords**: activity-specific vocabulary (see §1.2 Facet 2 activity table for full lists)
+
+#### Domain Pack Refinement
+
+When a domain pack is active (§1.3), activity classifications are refined to pack-specific sub-activities. Examples:
+- Engineering + activity=investigating -> `engineering:error-tracing` or `engineering:performance-profiling`
+- Legal + activity=researching -> `legal:C200` (UTBMS Researching Law code)
+- Marketing + activity=building -> `marketing:content-creation`
+
+The pack refinement is applied AFTER universal activity assignment. A call without any active pack gets tagged only with the universal activity (e.g., `auto:activity:investigating`) and is fully functional.
+
+### 1.6 Domain Discovery
+
+Domain classification answers "what part of the business does this AI spend belong to?" (engineering, legal, marketing, finance, ...). Only applies when `context=business`. Personal context does not use the domain facet (or defaults it to `life`).
+
+#### Discovery Stack
+
+| Option | Mechanism | Cost | Coverage |
+|--------|-----------|------|----------|
+| **A** | User explicit declaration (`!domain <value>`, `#domain:X`) | ~0 | 1-5% (power users) |
+| **B** | LiteLLM team/user metadata mapping (team "legal-ops" -> domain=legal; team "eng-platform" -> domain=engineering) | ~0 | 50-80% when enterprise uses virtual keys per team |
+| **C** | Project registry domain assignment (Workday-style driver worktag: project=auth-service -> domain=engineering auto-populated) | ~0 | Fills domain once project is assigned |
+| **D** | Content-based keyword matching (legal terminology -> domain=legal; marketing vocabulary -> domain=marketing) | ~0 | 40-60% |
+| **E** | LLM micro-classifier (Tier-3 slot-filling; filled alongside activity) | ~$0.0003/call | 85-95% |
+| **F** | Active domain pack scope (if pack is active for a call, domain is that pack's domain) | ~0 | Tight coupling with active pack |
+
+The domain cascade is A -> B -> C -> D -> E. Option F is a cross-check: if a pack is active and the domain classifier disagrees, the pack's domain takes precedence (user has explicitly activated it).
+
+Domain is often the easiest facet to classify correctly when enterprise uses per-team virtual keys (Option B); for individuals and small teams without such structure, Options C-E carry most of the weight. Content-based keyword matching (D) works well because domain vocabularies are highly distinctive (legal terms don't overlap much with marketing terms).
+
+#### Key Signals
+
+- **Team/user metadata** (primary business signal): mapped via `litellm_team_to_domain` registry
+- **Project metadata**: project registry entries carry a `domain` field, auto-populated on match (Workday driver -> related pattern)
+- **Content vocabulary**: strong/medium/weak keyword signals per domain, same TF-IDF-style scoring as pack detection (§1.3 Pack Detection Signals)
+- **File path hints**: `legal/`, `marketing/`, `finance/` top-level directory -> weak domain signal
+
+#### When Domain is Unavailable
+
+If `context=business` but no domain signal resolves, the call is tagged `auto:domain:unattributed`. This is rare in properly-configured enterprises (Option B + C cover most calls) but common for early adopters without virtual keys. Auto-discovery mode reports the unattributed rate and prompts the user to configure team mappings.
+
+### 1.7 Multi-Dimensional Tag Output Format
 
 Every classified call produces tags in a structured namespace:
 
@@ -1717,7 +1785,7 @@ auto:classifier:version:0.3.1     # classifier version for reproducibility
 
 This format is compatible with LiteLLM's `request_tags` (flat string list) while encoding structured multi-dimensional data. Consumers can filter on any facet dimension independently: "show me all `auto:domain:legal` spend" or "show me all `auto:activity:investigating` across all domains."
 
-### 1.6 The Combinatorial Power: Why This Matters
+### 1.8 The Combinatorial Power: Why This Matters
 
 With 5 facets, the system answers questions no single-taxonomy tool can:
 
@@ -1736,7 +1804,7 @@ With 5 facets, the system answers questions no single-taxonomy tool can:
 
 None of these questions are answerable with a flat 6-category engineering taxonomy. All are answerable with faceted classification from day 1.
 
-### 1.7 Taxonomy Evolution Strategy
+### 1.9 Taxonomy Evolution Strategy
 
 #### Within-Facet Evolution
 
@@ -1791,7 +1859,7 @@ Research shows algorithmically-constructed frequency-based hierarchies outperfor
 - TaxMorph -- [arxiv.org/html/2601.18375](https://arxiv.org/html/2601.18375) (EACL 2026) -- 4 refinement operations, +2.9 F1
 - OLLM ontology learning -- [github.com/andylolu2/ollm](https://github.com/andylolu2/ollm) (NeurIPS 2024)
 
-### 1.8 Taxonomy Library: Starting Points by Setting
+### 1.10 Taxonomy Library: Starting Points by Setting
 
 The system ships with pre-configured taxonomy profiles for different organizational contexts. Users select a profile at setup; it configures which domain packs are active and how facets are weighted.
 
@@ -1910,7 +1978,7 @@ project_detection: course codes (CS101, MATH240) + assignment names + life-area 
 custom_facets: [course, assignment, exam]
 ```
 
-### 1.9 Cross-Dimensional Intelligence
+### 1.11 Cross-Dimensional Intelligence
 
 The highest-value insights come from correlating across facets. These are not part of the classifier itself but emerge from the multi-faceted data:
 
@@ -1930,7 +1998,7 @@ The highest-value insights come from correlating across facets. These are not pa
 - "Legal teams that use AI for `researching` show 40% reduction in `reviewing` time"
 - This is the long-term moat: classification models that improve from cross-customer data
 
-### 1.10 In-Prompt Communication Layer
+### 1.12 In-Prompt Communication Layer
 
 The lowest-friction configuration method is the prompt itself. No config files, no env vars, no UI. Users should be able to declare project affinity, correct classifications, and pass metadata by typing naturally -- the same way Slack users embed `#channel` references or GitHub users type `/assign @user` in comments.
 
@@ -2327,7 +2395,7 @@ MVP ships with option 2; option 1 is post-MVP.
 - "I Sent the Same Prompt Injection to Ten LLMs. Three Complied" -- instruction-shaped token risk analysis
 - LLMON: LLM-native markup language -- [arxiv.org/html/2603.22519v1](https://arxiv.org/html/2603.22519v1) -- structured metadata in prompts
 
-### 1.11 Academic Foundations for This Design
+### 1.13 Academic Foundations for This Design
 
 | Source | Contribution to Design |
 |--------|----------------------|
