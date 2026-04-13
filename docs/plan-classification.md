@@ -557,7 +557,7 @@ personal:
       - "**/dist/**"
 ```
 
-##### Primary Discovery Mechanism: Tree-Path Classification Against a Hybrid Taxonomy
+##### Personal Projects Discovery: Tree-Path Classification Against a Hybrid Taxonomy
 
 The core problem: **how do we let a user's individual areas emerge without burdening them with taxonomy management?** We've established that fixed taxonomies are too rigid and pure clustering produces unlabeled, unstable output. Academic research on Pinterest's Pin2Interest, Netflix's altgenres, and Amazon's hierarchical product classification points to a superior approach:
 
