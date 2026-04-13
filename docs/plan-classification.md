@@ -43,7 +43,7 @@
 1. [Classification Taxonomy Design](#1-classification-taxonomy-design)
    - [Core Design Principles](#core-design-principles)
    - [1.1 Faceted Classification: The Architectural Foundation](#11-faceted-classification-the-architectural-foundation)
-   - [1.2 MVP Facet Schema (6 Dimensions)](#12-mvp-facet-schema-6-dimensions) -- context, domain, activity, project, artifact, phase
+   - [1.2 MVP Facet Schema (5 Dimensions)](#12-mvp-facet-schema-5-dimensions) -- context, domain, activity, project, phase
    - [1.3 Domain-Specific Activity Taxonomies (Industry Packs)](#13-domain-specific-activity-taxonomies-industry-packs) -- engineering, legal, marketing, research, finance, personal
    - [1.4 Automatic Project Detection](#14-automatic-project-detection)
    - [1.5 Multi-Dimensional Tag Output Format](#15-multi-dimensional-tag-output-format)
@@ -70,7 +70,7 @@ AI agent work spans software engineering at a FAANG, legal review at a law firm,
 
 **Principle 2: Faceted classification with 5-6 fixed facets is a reasonable starting point.**
 
-Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 6 facets: `context`, `domain`, `activity`, `project`, `artifact`, `phase`. Each is independently extracted, so a single API call produces 6 tags rather than one. Per §1.6, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
+Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 5 facets: `context`, `domain`, `activity`, `project`, `phase`. Each is independently extracted, so a single API call produces 5 tags rather than one. Per §1.6, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
 
 Facets are **fixed** in the MVP -- we do not let users add custom facets in v1. Custom facets (Workday Foundation Data Model style) are a post-MVP extension. Fixed facets keep the cognitive model simple, the classifier training surface bounded, and the analytics stable.
 
@@ -80,11 +80,10 @@ The 10 universal activities (investigating, building, improving, verifying, rese
 
 Domain packs (§1.3) are optional YAML overlays shipped with the tool (engineering, legal, marketing, research, finance) that add domain-specific sub-activities underneath the universal 10. Users install packs relevant to their org; the universal taxonomy continues to work on everyone's calls regardless of what packs are active.
 
-**Can packs enhance facets other than `activity`?** Architecturally yes -- the pack schema supports extensions to any facet. Practical examples:
-- **Artifact**: Legal pack could add `artifact:legal-document:contract`, `artifact:legal-document:brief`, `artifact:legal-document:motion` under a generic `legal-document` type. Engineering already benefits from the universal artifact values (source, test, config, infra).
+**Can packs enhance facets other than `activity`?** Architecturally yes -- the pack schema supports extensions to any facet. Practical example:
 - **Phase**: Legal litigation has its own phase vocabulary -- `phase:pleading`, `phase:discovery-L300`, `phase:trial`, `phase:appeal` -- distinct from the universal software-style phases (discovery, implementation, review, deployment, maintenance).
 
-For MVP, packs extend only `activity`. Extending to `artifact` and `phase` is post-MVP, called out here because the data model is designed to accommodate it.
+For MVP, packs extend only `activity`. Extending to `phase` is post-MVP, called out here because the data model is designed to accommodate it.
 
 ---
 
@@ -108,7 +107,7 @@ Faceted classification requires **99% fewer definitions** and **99% fewer traini
 | PMEST Facet | Meaning | Declawsified Analog |
 |-------------|---------|---------------------|
 | **Personality** | The core entity/agent | `agent` -- who is acting (Claude Code, Codex, Copilot) |
-| **Matter** | The material being worked on | `artifact` -- what is being touched (source, test, config, docs) |
+| **Matter** | The material being worked on | (dropped; file-level granularity added no decision-useful signal) |
 | **Energy** | The action/process/operation | `activity` -- what kind of work (debugging, drafting, research) |
 | **Space** | Location in the organization | `domain` + `project` -- where in the org and what initiative |
 | **Time** | Temporal period/phase | `phase` -- where in the work lifecycle (discovery, implementation, review) |
@@ -123,9 +122,9 @@ Faceted classification requires **99% fewer definitions** and **99% fewer traini
 - Miller, "The Magical Number Seven" (1956) -- cognitive load limits
 - Cowan, "The Magical Number Four" (2001) -- revised working memory capacity
 
-### 1.2 MVP Facet Schema (6 Dimensions)
+### 1.2 MVP Facet Schema (5 Dimensions)
 
-Every API call is classified along all 6 dimensions simultaneously. Each facet has its own classifier, they run independently and in parallel.
+Every API call is classified along all 5 dimensions simultaneously. Each facet has its own classifier, they run independently and in parallel.
 
 ```
 API Call arrives
@@ -135,7 +134,6 @@ API Call arrives
 |                                                      |
 |  [context_classifier]  -> context=business           |
 |  [agent_extractor]     -> agent=claude-code          |
-|  [artifact_extractor]  -> artifact=source            |
 |  [activity_classifier] -> activity=debugging (0.91)  |
 |  [domain_extractor]    -> domain=engineering         |
 |  [project_extractor]   -> project=auth-service       |
@@ -143,8 +141,10 @@ API Call arrives
 |                                                      |
 +-- Optional: Cross-Facet Correlation Layer -----------+
 |                                                      |
-|  If artifact=test AND activity=debugging:            |
-|    adjust -> activity=testing (0.85)                 |
+|  If project=auth-service AND activity=researching:   |
+|    weak signal -> no adjustment                      |
+|  If domain=legal AND context=personal:               |
+|    low-confidence -> flag for review                 |
 |                                                      |
 +------------------------------------------------------+
     |
@@ -154,7 +154,6 @@ Output tags (all dimensions, per-facet confidence):
   auto:agent:claude-code
   auto:domain:engineering
   auto:activity:debugging
-  auto:artifact:source
   auto:project:auth-service
   auto:phase:maintenance
   auto:confidence:activity:0.91
@@ -315,22 +314,7 @@ projects:
 
 When no registry exists, projects are auto-detected from git repository names and working directory paths, then surfaced to the user for confirmation and enrichment.
 
-#### Facet 4: `artifact` -- What Is Being Worked On (WHAT MATERIAL)
-
-| Value | Description | Detection Signal |
-|-------|-------------|------------------|
-| `source` | Application source code | `.py`, `.ts`, `.go`, `.java`, `.rs` etc. in tool calls |
-| `test` | Test code and test infrastructure | `*_test.*`, `*_spec.*`, `test_*`, `__tests__/` |
-| `config` | Configuration, environment, settings | `.yaml`, `.toml`, `.env`, `*.config.*`, `settings.*` |
-| `docs` | Documentation, READMEs, specs | `.md`, `.rst`, `.txt`, `docs/`, `README` |
-| `infra` | Infrastructure-as-code, CI/CD | `Dockerfile`, `.github/`, `terraform/`, `k8s/` |
-| `data` | Data files, schemas, migrations | `.sql`, `.csv`, `.json` (data), `migrations/` |
-| `design` | Design artifacts, mockups, styles | `.css`, `.scss`, `.figma`, `*.sketch`, design tokens |
-| `legal` | Legal documents, contracts, policies | `.docx` (legal), contract templates, policy files |
-
-**Extraction**: Pure rule-based from file paths in tool calls. Near-zero cost, near-100% accuracy when file paths are present. Falls back to `unknown` when no file operations occur (e.g., pure conversation).
-
-#### Facet 5: `phase` -- Work Lifecycle Position (WHEN IN THE PROCESS)
+#### Facet 4: `phase` -- Work Lifecycle Position (WHEN IN THE PROCESS)
 
 | Value | Description | Detection Signal |
 |-------|-------------|------------------|
@@ -468,14 +452,13 @@ Based on Big 4 service categories and standard accounting workflow.
 
 When `context=personal` (see §1.2 Facet 0), the `project` facet uses a different vocabulary than business. Instead of specific work initiatives (auth-service, patent-q3), personal projects are ongoing life areas (health, finances, relationships) plus any user-declared personal initiatives (marathon-training, home-renovation-2026, etc.).
 
-The same 6 facets apply across both contexts -- only the values change. There is no separate personal "area" facet; `project` handles it uniformly:
+The same 5 facets apply across both contexts -- only the values change. There is no separate personal "area" facet; `project` handles it uniformly:
 
 | Facet | context=business | context=personal |
 |-------|------------------|------------------|
 | `project` | auth-service, patent-q3-filings, frontend-redesign | health, finances, marathon-training, home-renovation-2026 |
 | `activity` | same 10 universal activities | same 10 universal activities |
 | `domain` | engineering, legal, marketing, ... | (less relevant; can default to `life`) |
-| `artifact` | source, test, config, infra, ... | notes, docs, receipts, photos, ... |
 | `phase` | discovery, implementation, review, ... | (less structured in personal use) |
 
 This is not a pack -- there is no "personal pack" to activate. Context detection (§1.2) does the switch automatically. The content below describes **what personal project values look like** and **how they get discovered**.
@@ -1662,8 +1645,7 @@ auto:domain:engineering
 auto:activity:investigating
 auto:project:auth-service
 
-# Artifact and phase (present when detectable)
-auto:artifact:source
+# Phase (present when detectable)
 auto:phase:maintenance
 
 # Agent identification (always present, trivial extraction)
@@ -1698,7 +1680,7 @@ With 5 facets, the system answers questions no single-taxonomy tool can:
 | "How much did the auth-service project cost?" | project=auth-service | Project lead |
 | "Are we spending more on research or implementation?" | activity | Anyone |
 | "Which projects are stuck in investigation phase?" | activity=investigating, project, phase | PM |
-| "How much AI spend is on test code vs source code?" | artifact | Tech lead |
+| "How much is context=personal using AI vs context=business?" | context | Individual user |
 | "Which team spends the most on AI-assisted code review?" | activity=reviewing, domain | Engineering manager |
 | "What's our AI cost for patent work specifically?" | domain=legal, project=patent-* | IP counsel |
 | "How does Claude Code vs Codex cost compare for debugging?" | agent, activity=investigating | Developer |
@@ -1781,7 +1763,7 @@ project_detection: auto (git repo + working directory)
 profile: engineering-team
 domain_facet: simplified  # engineering, product, design, operations
 active_packs: [engineering]
-primary_view: project + activity + artifact
+primary_view: project + activity
 project_detection: litellm teams + git repo
 ```
 
@@ -2336,7 +2318,7 @@ MVP ships with option 2; option 1 is post-MVP.
 
 **Key models in the literature**: HTCInfoMax (NAACL 2021), HGCLR (ACL 2022), HiTIN (ACL 2023), HiGen (2025).
 
-**Multi-output classification**: Each facet gets its own flat classifier (sklearn MultiOutputClassifier pattern). Research shows independent classifiers per dimension are competitive with joint models and far simpler to debug. Only add cross-facet correlation if inter-dimension dependencies are measured in real data (e.g., `artifact=test` strongly predicts `activity=verifying`).
+**Multi-output classification**: Each facet gets its own flat classifier (sklearn MultiOutputClassifier pattern). Research shows independent classifiers per dimension are competitive with joint models and far simpler to debug. Only add cross-facet correlation if inter-dimension dependencies are measured in real data (e.g., `context=personal` strongly predicts `project=health|finances|relationships`).
 
 #### Software Engineering Activity Classification
 
@@ -2407,7 +2389,7 @@ Signal-only classification without reading prompt content. Runs independently pe
 
 **Project facet signals**: See §1.4 detection algorithm.
 
-**Expected Tier 1 coverage**: 25-35% of `activity` calls resolved. 70-80% of `artifact` calls resolved. 90%+ of `project` calls resolved (when metadata or git signals present).
+**Expected Tier 1 coverage**: 25-35% of `activity` calls resolved. 90%+ of `project` calls resolved (when metadata or git signals present).
 
 #### Tier 2: Keyword/Content Classifier (<1ms)
 
@@ -2479,20 +2461,19 @@ Context:
 ```
 Call arrives -> All facet extractors run in parallel
   |
-  | ARTIFACT facet          ACTIVITY facet           DOMAIN facet         PROJECT facet
-  | (almost always          (cascade)                (cascade)            (mostly rules)
-  |  rule-based)
-  |                          |                        |
-  | file path rules   Tier 1: metadata rules   team/user metadata   git repo/workdir/tags
-  | -> artifact=source       |                        |                    |
-  |                    High conf? -> done        Known team? -> done  Signal found? -> done
-  |                          |                        |                    |
-  |                    Tier 2: keywords/ML      Tier 2: keywords     session continuity
-  |                          |                        |                    |
-  |                    High conf? -> done        High conf? -> done   -> project=X
-  |                          |                        |
-  |                    Tier 3: LLM micro-classifier (multi-slot)
-  |                    -> fills activity + domain + phase in one call
+  |   CONTEXT facet          ACTIVITY facet           DOMAIN facet         PROJECT facet
+  |   (signals + override)   (cascade)                (cascade)            (mostly rules)
+  |        |                      |                        |
+  |   signal-weighted       Tier 1: metadata rules   team/user metadata   git repo/workdir/tags
+  |   -> context=business        |                        |                    |
+  |                         High conf? -> done        Known team? -> done  Signal found? -> done
+  |                              |                        |                    |
+  |                         Tier 2: keywords/ML      Tier 2: keywords     session continuity
+  |                              |                        |                    |
+  |                         High conf? -> done        High conf? -> done   -> project=X
+  |                              |                        |
+  |                         Tier 3: LLM micro-classifier (multi-slot)
+  |                         -> fills activity + domain + phase in one call
 ```
 
 **Key optimization**: When Tier 3 is needed, a single LLM call fills ALL remaining low-confidence facets simultaneously via slot-filling prompt. This avoids paying for separate LLM calls per facet.
