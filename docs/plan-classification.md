@@ -217,7 +217,7 @@ This is the highest-value facet for enterprises. It answers: "Which department's
 
 #### Facet: `activity` -- Work Activity Type (WHAT KIND OF ACTION)
 
-This is the original "work type" classifier, now one facet among five. The values need to work across ALL domains, not just engineering.
+The `activity` facet captures what kind of work is happening. The values must work across ALL domains, not just engineering.
 
 **The universal activity pattern**: Research across UTBMS legal billing codes, O*NET work activities, Bloom's taxonomy, and Reinhardt's knowledge worker roles reveals that the same ~10 activity types recur in every industry:
 
@@ -234,7 +234,7 @@ This is the original "work type" classifier, now one facet among five. The value
 | `reviewing` | Code review, peer review, approval, critique | Legal review, Academic peer review, Eng code review |
 | `coordinating` | Project management, cross-team sync, delegation | Legal A127, PM, Cross-functional coordination |
 
-**Why 10 universal activities instead of 6 engineering-specific ones**: The UTBMS legal billing standard (A101-A128) has been production-validated for 25+ years across thousands of law firms. When we map their 28 activity codes to our system, they collapse to these same 10 categories. O*NET's 41 Generalized Work Activities similarly reduce to these clusters. This is not accidental -- these represent fundamental modes of knowledge work.
+**Why these 10 universal activities**: The UTBMS legal billing standard (A101-A128) has been production-validated for 25+ years across thousands of law firms. When we map its 28 activity codes to our system, they collapse to these same 10 categories. O*NET's 41 Generalized Work Activities similarly reduce to these clusters. This is not accidental -- these represent fundamental modes of knowledge work.
 
 #### Facet: `project` -- Work Initiative (WHAT ARE WE WORKING TOWARD)
 
