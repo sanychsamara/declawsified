@@ -24,7 +24,7 @@ Add note that facets values could be scalar (domain, activity) or 1-d array (pro
 
 Create a modular design for classificatin pipeline. Pipeline returns a standard response with a list of facet/value/confidence, adding new facet classifiers to the pipeline does not change up or downstream code. 
 
-Rewrite "### 1.7 Multi-Dimensional Tag Output Format" classification output should be saved to SQL-based storage (support both PostreSQL and DuckDB)
+Rewrite "### 1.8 Multi-Dimensional Tag Output Format" classification output should be saved to SQL-based storage (support both PostreSQL and DuckDB)
 
 ## Table of Contents
 
@@ -36,13 +36,14 @@ Rewrite "### 1.7 Multi-Dimensional Tag Output Format" classification output shou
    - [1.4 Project Discovery](#14-project-discovery) -- shared stack, personal-specific, business-specific
    - [1.5 Activity Discovery](#15-activity-discovery)
    - [1.6 Domain Discovery](#16-domain-discovery)
-   - [1.7 Multi-Dimensional Tag Output Format](#17-multi-dimensional-tag-output-format)
-   - [1.8 The Combinatorial Power](#18-the-combinatorial-power-why-this-matters)
-   - [1.9 Taxonomy Evolution Strategy](#19-taxonomy-evolution-strategy)
-   - [1.10 Taxonomy Library: Starting Points by Setting](#110-taxonomy-library-starting-points-by-setting) -- solo dev, startup, enterprise, law firm, agency, university
-   - [1.11 Cross-Dimensional Intelligence](#111-cross-dimensional-intelligence)
-   - [1.12 In-Prompt Communication Layer](#112-in-prompt-communication-layer) -- `#tags` and `!commands` for power users
-   - [1.13 Academic Foundations](#113-academic-foundations-for-this-design)
+   - [1.7 Session Continuity](#17-session-continuity) -- forward inheritance, conflict resolution, back-propagation
+   - [1.8 Multi-Dimensional Tag Output Format](#18-multi-dimensional-tag-output-format)
+   - [1.9 The Combinatorial Power](#19-the-combinatorial-power-why-this-matters)
+   - [1.10 Taxonomy Evolution Strategy](#110-taxonomy-evolution-strategy)
+   - [1.11 Taxonomy Library: Starting Points by Setting](#111-taxonomy-library-starting-points-by-setting) -- solo dev, startup, enterprise, law firm, agency, university
+   - [1.12 Cross-Dimensional Intelligence](#112-cross-dimensional-intelligence)
+   - [1.13 In-Prompt Communication Layer](#113-in-prompt-communication-layer) -- `#tags` and `!commands` for power users
+   - [1.14 Academic Foundations](#114-academic-foundations-for-this-design)
 2. [Classification Engine: Research & Approach](#2-classification-engine-research--approach)
 3. [Classification Technique Cost Analysis](#3-classification-technique-cost-analysis)
 4. [Memory & Taxonomy System Research](#4-memory--taxonomy-system-research)
@@ -60,7 +61,7 @@ AI agent work spans software engineering at a FAANG, legal review at a law firm,
 
 **Principle 2: Faceted classification with 5-6 fixed facets is a reasonable starting point.**
 
-Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 5 facets: `context`, `domain`, `activity`, `project`, `phase`. Each is independently extracted, so a single API call produces 5 tags rather than one. Per §1.8, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
+Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 5 facets: `context`, `domain`, `activity`, `project`, `phase`. Each is independently extracted, so a single API call produces 5 tags rather than one. Per §1.9, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
 
 Facets are **fixed** in the MVP -- we do not let users add custom facets in v1. Custom facets (Workday Foundation Data Model style) are a post-MVP extension. Fixed facets keep the cognitive model simple, the classifier training surface bounded, and the analytics stable.
 
@@ -345,7 +346,7 @@ This is the meta-facet. It runs first because it scopes the vocabulary of other 
 | Pronouns: "I/me/my/my wife/my kid" | personal | Strong (needs prompt reading) |
 | Pronouns: "we/our team/our customer" | business | Strong (needs prompt reading) |
 
-**Override via in-prompt command**: `!context personal` or `!context business` forces the classifier for the current call and session (see §1.12).
+**Override via in-prompt command**: `!context personal` or `!context business` forces the classifier for the current call and session (see §1.13).
 
 **Decision rule**: Sum weighted signals. If `personal_score > business_score + 0.3` -> `context=personal`. Otherwise -> `context=business` (the safer default for enterprise deployments). Ambiguous calls get tagged with lower confidence; users can correct via `!correct context=personal`.
 
@@ -580,7 +581,7 @@ def detect_project(call_metadata: dict, project_registry: dict) -> str:
     Returns project identifier. Runs as part of Facet 3 extraction.
     Priority order ensures most-specific signal wins.
     """
-    # Priority 0: In-prompt command (100% confidence, see §1.12)
+    # Priority 0: In-prompt command (100% confidence, see §1.13)
     #   User typed: !project auth-service   OR   #project:auth-service
     if prompt_command := extract_project_from_prompt(call_metadata.get("messages")):
         register_if_new(prompt_command, project_registry)
@@ -622,7 +623,7 @@ def detect_project(call_metadata: dict, project_registry: dict) -> str:
     return "unattributed"
 ```
 
-**Note on Priority 0**: User-typed tags and commands in the prompt text are the **highest-priority signal** because they represent direct, intentional user communication. The in-prompt layer (§1.12) gives users the lowest-friction way to override automatic detection when they know better than the signals.
+**Note on Priority 0**: User-typed tags and commands in the prompt text are the **highest-priority signal** because they represent direct, intentional user communication. The in-prompt layer (§1.13) gives users the lowest-friction way to override automatic detection when they know better than the signals.
 
 #### Session-Level Project Tracking
 
@@ -1313,7 +1314,158 @@ Domain is often the easiest facet to classify correctly when enterprise uses per
 
 If `context=business` but no domain signal resolves, the call is tagged `auto:domain:unattributed`. This is rare in properly-configured enterprises (Option B + C cover most calls) but common for early adopters without virtual keys. Auto-discovery mode reports the unattributed rate and prompts the user to configure team mappings.
 
-### 1.7 Multi-Dimensional Tag Output Format
+### 1.7 Session Continuity
+
+A "session" is a series of related API calls, typically bounded by an explicit session ID (Claude Code's `X-Claude-Code-Session-Id` header, Codex CLI's conversation scope) or, in its absence, a time window. Within a session, most facet values change slowly -- same project, same context, same activity type -- and the cheaper Tier 1 classifiers frequently miss signals that appear in other calls in the same session. Session continuity spreads high-confidence values across calls that would otherwise be classified as `unattributed` or low-confidence.
+
+Three design questions must be answered:
+1. **Inheritance**: how do facet values propagate forward within a session?
+2. **Conflict resolution**: when current-call classification disagrees with session state, who wins?
+3. **Back-propagation**: when a strong-confidence signal appears mid-session, do earlier unclassified or low-confidence calls get re-tagged retroactively?
+
+#### Options Explored
+
+**Option 1: Forward-only, strict inheritance.** A new call inherits the session's current value for a facet if the new call's classifiers return below the confidence threshold. Simple and predictable. Downside: if the session starts ambiguous and becomes clear later, the early calls stay ambiguous forever.
+
+**Option 2: Forward-only, weighted inheritance.** Session maintains a per-facet running best estimate (value + confidence). Each new call combines its own classification with session state via weighted average (session state decays with each call). More nuanced but requires tuning decay factors and obscures the source of each classification.
+
+**Option 3: Back-propagation within a time window.** When a high-confidence signal appears (e.g., user types `!project auth-service` in call N), tag preceding calls N-k through N-1 retroactively, bounded by a fixed time window (e.g., last 30 minutes). Upside: early ambiguous calls get corrected. Downside: time windows are arbitrary; different sessions have different paces.
+
+**Option 4: Back-propagation until conflict.** When a high-confidence signal appears, scan backward and apply it to every earlier call in the same session that does not already have a higher-confidence value for that facet. Stop at a session boundary or at a call with equal/greater confidence for that facet. More principled than time-window because the boundary is data-driven.
+
+**Option 5: No back-propagation; correct via user.** Only forward inheritance. Historical calls stay as originally classified. Users can issue `!correct` to retroactively fix specific calls. Simplest but misses the common "oh, this entire morning was auth-service work" insight.
+
+#### Recommended Design: Options 1 + 4
+
+The MVP combines **forward strict inheritance** (Option 1) with **back-propagation until conflict** (Option 4). Option 2 adds tuning complexity without clear wins. Option 3's time window is arbitrary. Option 5 alone misses easy accuracy gains.
+
+**Forward inheritance** (Option 1) is implemented as a Tier 1 classifier:
+
+```python
+class SessionContinuityClassifier:
+    name = "session_continuity_v1"
+    # Registered for every facet; filters in classify() based on what's present
+    tier = 1
+
+    async def classify(self, input: ClassifyInput) -> list[Classification]:
+        session = input.session_state
+        if not session:
+            return []
+        out = []
+        for facet, state in session.current.items():
+            if state.confidence >= 0.5:  # only inherit if prior was confident
+                out.append(Classification(
+                    facet=facet,
+                    value=state.value,
+                    confidence=0.75,  # inherited confidence is capped
+                    source=f"session-inherited-from-call-{state.call_id}",
+                    classifier_name=self.name,
+                    alternatives=[],
+                    metadata={"inherited_at": datetime.now()},
+                ))
+        return out
+```
+
+Competing classifiers (rules, keywords, LLM) still run. The aggregator picks the highest-confidence output; a fresh classifier returning 0.85 beats the inherited 0.75, so inheritance only fills in gaps rather than dominating.
+
+**Back-propagation** (Option 4) is a post-pipeline process triggered when any classifier returns confidence >= 0.9 for a facet:
+
+```python
+async def back_propagate(call_id, facet, value, confidence, session_id):
+    """
+    When a high-confidence signal arrives, walk backward through session
+    and retroactively update earlier low-confidence classifications.
+    """
+    if confidence < 0.9:
+        return  # only strong signals trigger back-propagation
+
+    # Walk backward within session, newest to oldest
+    for prior_call in get_session_calls(session_id, before=call_id):
+        prior_class = get_classification(prior_call, facet)
+        if prior_class.confidence >= confidence:
+            break  # hit a stronger or equal signal -- stop
+        if prior_class.confidence >= 0.7:
+            break  # prior was reasonably confident; don't override
+
+        # Back-propagate: update the prior call
+        update_classification(
+            prior_call, facet,
+            value=value,
+            confidence=0.8,  # slightly reduced from 0.9 to reflect indirectness
+            source=f"back-propagated-from-{call_id}",
+            original=prior_class,  # preserved for audit
+        )
+```
+
+**Bounds**:
+- Stops at a session boundary (new session_id, or >30min gap between calls)
+- Stops at a call with equal-or-greater confidence for that facet
+- Stops at a call with a user override (`!correct` or explicit declaration -- confidence 1.0)
+- Stops at a context boundary (if `context` changes mid-walk, back-propagation for other facets halts because personal/business vocabularies differ)
+
+**Audit trail**: every back-propagated classification keeps the original in `metadata.original`. Dashboards can show "12 calls were retroactively updated on 2026-04-12 14:32 when call N typed `!project auth-service`" for transparency.
+
+#### Conflict Resolution Rules
+
+When multiple classifiers produce conflicting values for the same (call, facet), the aggregator applies this priority:
+
+| Source | Confidence | Priority |
+|--------|-----------|----------|
+| In-prompt override (`!project`, `!context`, etc.) | 1.0 | Always wins |
+| User correction (`!correct`) | 1.0 | Always wins; also triggers back-propagation |
+| Metadata-mapped (LiteLLM team, git repo) | 0.95-1.0 | Near-certain on enterprise setups |
+| LLM micro-classifier | 0.6-0.95 | Normal range |
+| Keyword/ML classifiers | 0.5-0.9 | Normal range |
+| Session inheritance | 0.75 (capped) | Competes fairly in the middle tier |
+| Rules (weak signals) | 0.3-0.7 | Often overridden |
+
+Ties are broken by classifier tier (lower tier number wins, reflecting higher trust in cheaper/deterministic signals when confidence is equal).
+
+#### Session Boundaries
+
+Session continuity requires a definition of "same session." Four signals, in priority order:
+
+1. **Explicit session_id** from agent: Claude Code `X-Claude-Code-Session-Id`, Codex CLI conversation UUID
+2. **Time gap**: calls more than 30 minutes apart start a new session
+3. **Working directory change**: user switched from `~/dev/auth-service` to `~/Documents/Personal/Taxes` -> new session
+4. **Context change**: `context=business` -> `context=personal` (or vice versa) starts a new session because the vocabulary changes
+
+Session boundaries reset all per-facet continuity state. Cross-session back-propagation is post-MVP (useful for weekly-pattern detection but not needed for call-level accuracy).
+
+#### Session State Storage
+
+Per-session state is a dict keyed by facet:
+
+```python
+class SessionFacetState(BaseModel):
+    value: str | list[str]
+    confidence: float
+    last_updated: datetime
+    call_id: str                # where this value came from
+    source: str                 # which classifier/option
+
+class SessionState(BaseModel):
+    session_id: str
+    started_at: datetime
+    last_call_at: datetime
+    current: dict[str, SessionFacetState]  # facet -> state
+```
+
+Stored in the SQL-backed storage layer (§1.8 Tag Output Format) keyed by `session_id`. Read at the start of each pipeline run; written after aggregator produces the final result.
+
+#### Summary
+
+| Property | MVP Design |
+|----------|------------|
+| Forward inheritance | Option 1 (strict, via session_continuity_v1 Tier 1 classifier, capped at 0.75) |
+| Weighted inheritance | Post-MVP (Option 2) |
+| Back-propagation | Option 4 (until conflict), triggered by confidence >= 0.9 |
+| Time-window back-prop | Bounded by session boundary (not a fixed time window) |
+| User corrections | Trigger back-propagation immediately at confidence 1.0 |
+| Audit trail | Back-propagated classifications keep `metadata.original` |
+| Cross-session | Post-MVP |
+
+### 1.8 Multi-Dimensional Tag Output Format
 
 Every classified call produces tags in a structured namespace:
 
@@ -1347,7 +1499,7 @@ auto:classifier:version:0.3.1     # classifier version for reproducibility
 
 This format is compatible with LiteLLM's `request_tags` (flat string list) while encoding structured multi-dimensional data. Consumers can filter on any facet dimension independently: "show me all `auto:domain:legal` spend" or "show me all `auto:activity:investigating` across all domains."
 
-### 1.8 The Combinatorial Power: Why This Matters
+### 1.9 The Combinatorial Power: Why This Matters
 
 With 5 facets, the system answers questions no single-taxonomy tool can:
 
@@ -1366,7 +1518,7 @@ With 5 facets, the system answers questions no single-taxonomy tool can:
 
 None of these questions are answerable with a flat 6-category engineering taxonomy. All are answerable with faceted classification from day 1.
 
-### 1.9 Taxonomy Evolution Strategy
+### 1.10 Taxonomy Evolution Strategy
 
 #### Within-Facet Evolution
 
@@ -1409,7 +1561,7 @@ Research shows algorithmically-constructed frequency-based hierarchies outperfor
 - TaxMorph -- [arxiv.org/html/2601.18375](https://arxiv.org/html/2601.18375) (EACL 2026) -- 4 refinement operations, +2.9 F1
 - OLLM ontology learning -- [github.com/andylolu2/ollm](https://github.com/andylolu2/ollm) (NeurIPS 2024)
 
-### 1.10 Taxonomy Library: Starting Points by Setting
+### 1.11 Taxonomy Library: Starting Points by Setting
 
 The system ships with pre-configured taxonomy profiles for different organizational contexts. Users select a profile at setup; it configures which domain packs are active and how facets are weighted.
 
@@ -1528,7 +1680,7 @@ project_detection: course codes (CS101, MATH240) + assignment names + life-area 
 custom_facets: [course, assignment, exam]
 ```
 
-### 1.11 Cross-Dimensional Intelligence
+### 1.12 Cross-Dimensional Intelligence
 
 The highest-value insights come from correlating across facets. These are not part of the classifier itself but emerge from the multi-faceted data:
 
@@ -1548,7 +1700,7 @@ The highest-value insights come from correlating across facets. These are not pa
 - "Legal teams that use AI for `researching` show 40% reduction in `reviewing` time"
 - This is the long-term moat: classification models that improve from cross-customer data
 
-### 1.12 In-Prompt Communication Layer
+### 1.13 In-Prompt Communication Layer
 
 The lowest-friction configuration method is the prompt itself. No config files, no env vars, no UI. Users should be able to declare project affinity, correct classifications, and pass metadata by typing naturally -- the same way Slack users embed `#channel` references or GitHub users type `/assign @user` in comments.
 
@@ -1936,7 +2088,7 @@ MVP ships with option 2; option 1 is post-MVP.
 - "I Sent the Same Prompt Injection to Ten LLMs. Three Complied" -- instruction-shaped token risk analysis
 - LLMON: LLM-native markup language -- [arxiv.org/html/2603.22519v1](https://arxiv.org/html/2603.22519v1) -- structured metadata in prompts
 
-### 1.13 Academic Foundations for This Design
+### 1.14 Academic Foundations for This Design
 
 | Source | Contribution to Design |
 |--------|----------------------|

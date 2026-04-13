@@ -89,7 +89,7 @@ Classifications happen invisibly in the background -- the LiteLLM callback fires
 4. **Pack suggestions and project discoveries** -- non-blocking notifications
 5. **Misclassification corrections** -- easy way to fix errors and feed the active-learning pipeline
 
-All of this must flow through **out-of-band channels** -- never through the LLM prompt. `plan-classification.md` §1.11 established the safety reasoning: any classification chatter in the prompt risks being interpreted as instructions by the main LLM. Corrections, suggestions, and status information must reach the user through dedicated UI surfaces.
+All of this must flow through **out-of-band channels** -- never through the LLM prompt. `plan-classification.md` §1.13 (In-Prompt Communication Layer) established the safety reasoning: any classification chatter in the prompt risks being interpreted as instructions by the main LLM. Corrections, suggestions, and status information must reach the user through dedicated UI surfaces.
 
 ### 2.2 Channel Strategy: Complementary, Not Competing
 
