@@ -463,7 +463,7 @@ The 10 universal activities still apply, but with personal-life sub-activities:
 
 The hardest detection problem for the personal pack isn't "which area" -- it's "is this personal at all?". A software engineer asking Claude about Python syntax at 7pm from their work laptop is ambiguous. Our detection uses a two-tier signal model:
 
-**Tier A: Signal-only detection (privacy-safe, no prompt reading)**
+**Tier A: Signal-only detection (no prompt reading required)**
 
 | Signal | Score Direction | Strength |
 |--------|-----------------|----------|
@@ -504,8 +504,7 @@ The hardest detection problem for the personal pack isn't "which area" -- it's "
 
 The pack auto-detection algorithm (§1.4) adapts for personal use with looser thresholds because:
 1. Personal use is often lower-volume (10-50 calls/day vs 100-1000 for work)
-2. Misclassifying personal as work is more embarrassing than vice versa (privacy)
-3. Signals are often stronger (time-of-day, workdir) but fewer
+2. Signals are often stronger (time-of-day, workdir) but fewer
 
 **Adjusted thresholds for personal pack**:
 
@@ -515,41 +514,6 @@ The pack auto-detection algorithm (§1.4) adapts for personal use with looser th
 | Score threshold to suggest | 0.7 | 0.6 |
 | Score threshold to deactivate | 0.3 over 50 calls | 0.2 over 20 calls |
 | Rolling window | 20 calls | 10 calls |
-
-##### Privacy Architecture for Personal Classification
-
-Three of the most-useful personal areas (`health`, `relationships`, `finances`) overlap directly with **GDPR Article 9 special categories** and **CPRA "sensitive personal information"**. Classifying a call as `area=health` is itself processing of sensitive data -- even if the raw prompt isn't stored.
-
-This creates a hard design requirement for the personal pack:
-
-**Sensitivity tiers** (each classification carries a tier flag):
-
-| Tier | Areas | Default Handling |
-|------|-------|------------------|
-| `none` | Professional domains (engineering, legal, etc.) | Standard logging |
-| `personal-safe` | home, fun-hobbies, learning, admin, career-personal | Logged with area tag |
-| `personal-sensitive` | health, relationships, parenting, finances, personal-growth | Area tag logged; sub-area redacted unless opt-in; prompt content never logged |
-| `regulated` | Any area crossing HIPAA/GDPR Art 9 thresholds | Area name ONLY; no sub-area, no signals, no prompt, tag = `auto:area:restricted` |
-
-**Four privacy modes** (user-selectable):
-
-1. **Signal-only** (default for personal pack): Never read prompt content. Classification uses only time-of-day, workdir, file types, tool patterns. Lower accuracy (~70%) but zero content exposure.
-2. **Content-visible** (opt-in): Classifier reads prompts to improve accuracy (~90%) but prompts are not logged or shared beyond the classification event.
-3. **Local-only** (paranoid mode): All personal classifications stay on the user's machine. Never exported to cross-customer aggregates. Never logged to external systems.
-4. **Work-only** (disable personal pack): Tool classifies only calls detected as professional. Personal calls bypass classification entirely, no logs.
-
-**Sensitive sub-area redaction**:
-
-By default, for `personal-sensitive` tier:
-- `auto:area:health` -- tagged
-- `auto:area:health:cancer-treatment` -- REDACTED unless user opts in
-- `auto:goal:chemotherapy-planning` -- REDACTED unless user opts in
-
-The user can see their own full classifications locally; cross-customer aggregation and cloud dashboards see only the top-level area.
-
-**Cross-customer learning opt-in**:
-- Work packs: aggregated patterns shared by default (anonymous, aggregate)
-- Personal pack: **explicit opt-in per area**, with k-anonymity guarantees before export (no cohort smaller than k=50)
 
 ##### Personal Pack Detection Signals
 
@@ -706,7 +670,7 @@ Each prompt goes through a 3-tier cascade (distinct from the §2 activity-classi
 **Tier 1: Retrieval (<5ms, O(log n))**
 
 Pre-compute embeddings for every taxonomy node (using sentence-transformers: all-MiniLM-L6-v2 or gte-small). For each prompt:
-1. Embed the prompt (or extract signal tokens if in signal-only privacy mode)
+1. Embed the prompt (or extract signal tokens if in signal-only mode)
 2. Find top-K=20 nearest taxonomy nodes via cosine similarity (HNSW index)
 3. Prune the tree to the subtree containing these K candidates
 
@@ -931,7 +895,7 @@ def discover_subareas(area: str, calls: list[Call], min_size: int = 8) -> list[S
     if len(calls) < 20:
         return []  # not enough data yet
 
-    # 1. Embed prompts (or signals-only for privacy-safe mode)
+    # 1. Embed prompts (or signals only, if configured)
     embeddings = embed_calls(calls)
 
     # 2. Density-based clustering (HDBSCAN or DBSCAN)
@@ -1119,9 +1083,9 @@ We also have a community 'gardening' specialization with 7 sub-areas and
 
 ##### Cross-Customer Pattern Learning (The Flywheel)
 
-The CrowdStrike-style data moat applies to personal use too, but with stricter privacy gates.
+The CrowdStrike-style data moat applies to personal use too.
 
-**What's shared (opt-in, aggregated, k-anonymous)**:
+**What's shared (opt-in, aggregated)**:
 - Sub-area names that users accept (not sub-area vocabularies or content)
 - Specialization usage statistics
 - Common sub-area co-occurrences ("users with gardening also have woodworking")
@@ -1129,14 +1093,13 @@ The CrowdStrike-style data moat applies to personal use too, but with stricter p
 **What's never shared**:
 - Individual call content
 - User-specific vocabularies
-- Sensitive-tier classifications (health sub-areas, relationship sub-areas, finance sub-areas)
 
 **What this enables**:
 - Growing the specialization library: popular user-accepted sub-areas become candidates for new shipped specializations
 - Cold-start better defaults: "Most new users in `fun-hobbies` develop sub-areas for: cooking (34%), gardening (28%), reading (22%)..."
 - Trend detection: "Users in 2026 are increasingly adding AI-assisted sub-areas around homesteading, LLM-development, climate-adaptation"
 
-**Privacy mechanism**: k-anonymity threshold of k=50. No sub-area name is published until 50+ users have it independently. No cohort is attributable. Encrypted aggregation via secure aggregation protocol (same technique Apple uses for iMessage emoji statistics).
+**Aggregation threshold**: A sub-area name is only published as a shared default after 50+ users have it independently. This avoids singleton or small-cohort patterns shaping the default library.
 
 ##### Sub-Area Lifecycle
 
@@ -1149,25 +1112,6 @@ Sub-areas are not forever. They can:
 **Split**: If a sub-area contains distinct clusters > cohesion threshold, suggest splitting.
 **Archive**: No calls for 90 days; system proposes archiving (keeps tag searchable but stops auto-classifying to it).
 **Graduate**: Expertise tier crosses into `professional` → suggest moving from life area to domain.
-
-##### Privacy-Safe Sub-Area Discovery Mode
-
-For users in Signal-only privacy mode (default), prompt embeddings are unavailable. Sub-area discovery operates on available signals:
-
-| Signal | Usable Without Prompt Content |
-|--------|------------------------------|
-| File paths touched | Yes (`~/Gardens/spring-2026-plan.md`) |
-| File name keywords | Yes (filename contains "tomato") |
-| Working directory patterns | Yes (`~/Hobbies/Gardening/`) |
-| Temporal patterns (time of day, day of week) | Yes |
-| Session duration | Yes |
-| Tool invocation patterns | Yes |
-| In-prompt tags user typed (`#gardening`) | Yes -- users can explicitly seed taxonomy via tags |
-| Actual prompt text | No (signal-only mode) |
-
-Signal-only discovery is less granular (finds `gardening` but not `gardening/permaculture`) but preserves privacy. Users can explicitly deepen via `#tags` or by toggling to content-visible mode for specific areas.
-
-**Example**: User in signal-only mode has been saving files to `~/Hobbies/Garden/` and tagging prompts with `#garden` for 6 weeks. System detects 34 calls with consistent file/tag pattern, proposes `fun-hobbies/gardening` sub-area. No prompt content was read.
 
 ##### Configuration: User Control Over Dynamic Taxonomy
 
@@ -1194,7 +1138,6 @@ personal:
   cross_customer_sharing:
     enabled: false  # opt-in, default off
     shared_areas: []  # user picks per-area: [fun-hobbies, learning]
-    exclude_sensitive: true  # never share health/relationships/finances/parenting
 ```
 
 ##### How This Generalizes to Work Packs
@@ -1207,7 +1150,6 @@ The same algorithm runs for work packs, with these differences:
 |--------|----------|------|
 | Min cluster size | 8 | 25 |
 | Proposal frequency | weekly | monthly |
-| Privacy constraints | Strong (sensitive areas) | Weaker (corporate context) |
 | Specialization library | Hobby/life templates | Industry/role templates |
 | Cross-customer sharing | Opt-in per area | Opt-in per org |
 
@@ -1604,7 +1546,7 @@ Sees engineering signals in code-heavy calls, legal signals in review calls
 2. **Pack suggestions never block prompts**: The suggestion is out-of-band. Work continues regardless of user response.
 3. **Explicit user commands always win**: `!pack legal` overrides any detection logic.
 4. **Stable project defaults**: Within a project, packs don't flicker. Changes require evidence threshold or explicit command.
-5. **Privacy**: Pack signal scoring happens locally. Aggregate anonymized data for cross-customer learning is opt-in only.
+5. **Local-first**: Pack signal scoring happens locally. Aggregate anonymized data for cross-customer learning is opt-in only.
 
 **References**
 
@@ -1938,8 +1880,6 @@ active_packs: [personal]
 primary_view: area + activity
 project_detection: disabled  # replaced by area detection
 area_detection: signal-only (time, workdir, vocabulary)
-privacy_mode: signal-only  # default: never read prompt content
-sensitive_redaction: enabled  # health/relationships/finances sub-areas hidden
 cross_customer_sharing: opt-in-per-area
 dashboard_view: life-wheel  # radial chart, not bar/line
 ```
@@ -1956,7 +1896,6 @@ primary_view: context(work|personal) + area-or-project + activity
 project_detection: enabled for work contexts
 area_detection: enabled for personal contexts
 personal_work_classifier: enabled  # signal-based discriminator runs first
-privacy_mode: work=standard, personal=signal-only
 session_split: automatic  # session can contain both contexts, classified per-call
 ```
 
@@ -2089,7 +2028,6 @@ The multi-line anchor (`(?m)^`) is critical: prose flows around commands in mult
 | `!area <name>` | Set personal life area (personal pack) | `!area health` |
 | `!personal` | Force personal classification for this call | `!personal` |
 | `!work` | Force professional classification for this call | `!work` |
-| `!privacy <signal-only\|content\|local>` | Change privacy mode | `!privacy signal-only` |
 | `!subarea <parent>/<name>` | Create or assign personal sub-area | `!subarea fun-hobbies/gardening` |
 | `!specialization install <name>` | Import community specialization template | `!specialization install gardening` |
 | `!help` | Out-of-band help (doesn't reach LLM) | `!help` |
@@ -2376,7 +2314,7 @@ MVP ships with option 2; option 1 is post-MVP.
 | Corrections | `!correct` feeds active learning |
 | Errors | Never block prompt; fuzzy-match suggestions; signal-only logging |
 | Discovery | `CLAUDE.md` + future hook-level `!help` |
-| Privacy | Three modes: preserve / strip / normalize |
+| Prompt handling | Three modes: preserve / strip / normalize |
 | Backwards compat | Tags are harmless text if Declawsified isn't installed |
 
 **References**
@@ -2475,7 +2413,7 @@ Academic literature on cascade classifiers supports a tiered approach where clas
 
 #### Tier 1: Metadata Rules (zero cost, <0.1ms)
 
-Signal-only classification without reading prompt content. Privacy-safe tier. Runs independently per facet.
+Signal-only classification without reading prompt content. Runs independently per facet.
 
 **Activity facet signals**:
 
