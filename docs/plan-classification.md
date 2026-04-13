@@ -119,6 +119,15 @@ Faceted classification requires **99% fewer definitions** and **99% fewer traini
 
 Every API call is classified along all 5 dimensions simultaneously. Each facet has its own classifier, they run independently and in parallel.
 
+**Confidence is mandatory, not optional.** Every classifier returns a `(value, confidence)` tuple where `confidence ∈ [0.0, 1.0]`. There is no "extracted deterministically without confidence" tier -- even facets that look deterministic (agent name from a header, project from an explicit `!project` command) return confidence = 1.0 explicitly. Uniform confidence handling lets downstream code treat every facet the same way:
+
+- **Conflict resolution**: when two signals disagree (e.g., `project_classifier` says `auth-service` at 0.88 from git repo, but in-prompt override `!project frontend-redesign` says 1.00), highest-confidence wins.
+- **Threshold gating**: tags are emitted only above a per-facet minimum confidence (default: 0.5). Below that the value becomes `unattributed` with the confidence preserved for debugging.
+- **Cross-facet correlation**: low confidence on one facet combined with high confidence on a correlated facet (e.g., `artifact=test` at 0.99) can raise the low one (e.g., `activity=verifying` bumped from 0.55 to 0.80).
+- **User-feedback gating**: corrections (`!correct activity=improving`) are stored as confidence=1.0 overrides that take precedence over any automatic classification.
+
+Every facet output block in this section assumes this contract. The pipeline design in §1.X (Modular Pipeline) formalizes it.
+
 ```
 API Call arrives
     |
