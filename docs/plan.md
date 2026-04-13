@@ -2,7 +2,9 @@
 
 **Scope:** Top-level architecture, UI surfaces, repository structure, execution phases, and success criteria for delivering Declawsified -- a LiteLLM auto-classification plugin that classifies every AI agent API call along 5 independent facets with 85-90% accuracy.
 
-**Companion doc:** [`plan-classification.md`](./plan-classification.md) -- classification taxonomy, classifier engine, cost model, and memory/taxonomy research. If you care about **what** the classifier does and **why**, read that. This document covers **how** we deliver it.
+**Companion docs:**
+- [`plan-classification.md`](./plan-classification.md) -- classification taxonomy, classifier engine, cost model, and memory/taxonomy research. If you care about **what** the classifier does and **why**, read that. This document covers **how** we deliver it.
+- [`plan-domain-packs.md`](./plan-domain-packs.md) -- industry-specific activity sub-taxonomies (engineering, legal, marketing, research, finance, personal/education) and pack auto-detection.
 
 ---
 
@@ -1112,7 +1114,7 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
   - 4 tiers: beginner / hobbyist / advanced-hobbyist / professional
   - Triggers specialization offer at advanced-hobbyist tier
   - Triggers "reclassify as work domain" suggestion at professional tier
-- [ ] **Implement pack signal scoring engine** (plan-classification.md §1.3 pack detection):
+- [ ] **Implement pack signal scoring engine** (plan-domain-packs.md §1 Pack Auto-Detection):
   - Per-pack signal inventories (strong/medium/weak/exclusion)
   - Score computation with TF-IDF-style weighting
   - Exclusion signal handling
