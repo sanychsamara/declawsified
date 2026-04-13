@@ -128,6 +128,25 @@ Every API call is classified along all 5 dimensions simultaneously. Each facet h
 
 Every facet output block in this section assumes this contract. The pipeline design in §1.X (Modular Pipeline) formalizes it.
 
+**Facet arity: scalar or 1-d array.** Most facets are **scalar** -- a call has exactly one `context`, one `domain`, one `activity`, one `phase`. The `project` facet is **1-d array** -- a single call can belong to multiple projects simultaneously (e.g., a call that refactors code shared between `auth-service` and `billing-service`, or a personal meal-plan call that relates to both `health` and `home`).
+
+Multi-project support changes the project-discovery strategy materially: instead of picking one option out of the discovery stack (§1.4), the pipeline can **run all discovery options in parallel and emit every output above the confidence threshold**. Cap the emitted set at the top 2-3 by confidence to avoid noise. If all options agree, the array collapses to a single value; if they diverge, the array captures the actual multi-project nature of the call.
+
+Example:
+```
+Call: "refactor the token validation to work for both auth-service and billing-service"
+project_classifier output:
+  [
+    {"value": "auth-service",    "confidence": 0.92, "source": "in-prompt-mention + git-repo"},
+    {"value": "billing-service", "confidence": 0.87, "source": "in-prompt-mention"},
+    {"value": "shared-auth-lib", "confidence": 0.41, "source": "semantic-clustering"}
+  ]
+Emitted (above 0.5): ["auth-service", "billing-service"]
+Output tags: auto:project:auth-service, auto:project:billing-service
+```
+
+Scalar facets that could conceptually be multi-valued (e.g., a call spans legal + engineering) stay scalar in MVP to keep analytics simple. If demand emerges, they can be promoted to arrays post-MVP without breaking the pipeline contract (the consumer already handles `value | list[value]`).
+
 ```
 API Call arrives
     |
@@ -418,7 +437,9 @@ Regardless of context, project discovery uses the same priority-ordered stack. T
 
 Options A, B, D, E, F are mechanically identical across contexts. Option B's business-specific variants (LiteLLM team/key mapping, git branch-prefix conventions) don't apply in personal. Option C differs in vocabulary: business uses domain-pack inventories; personal uses the 10 life-area inventories (§1.3 Personal Context).
 
-The detection algorithm below (business cascade) implements A -> B -> B2 -> F. Options D and E are triggered when the cascade returns `unattributed` at volume. Option C runs alongside to produce the `domain` facet in parallel. Personal-specific mechanisms follow below, then the shared deep-dive into D and E.
+**Multi-project output** (because `project` is a 1-d array facet -- see §1.2): the discovery pipeline **runs all applicable options in parallel** and emits every result above the confidence threshold, capped at the top 2-3 by confidence. This is a key simplification vs most classifiers: we don't need a single priority-ordered cascade with "first signal wins" logic -- we run everything and let confidence + thresholding decide what to emit. A call can produce `project=["auth-service", "billing-service"]` when it genuinely spans both.
+
+For operational simplicity, Option A (explicit user declaration) at confidence 1.0 always suppresses other options' contributions (user override wins). Options B-F can coexist in the output array.
 
 #### Business-Specific Detection Algorithm
 
