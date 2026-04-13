@@ -37,7 +37,7 @@ Rewrite "### 1.8 Multi-Dimensional Tag Output Format" classification output shou
    - [1.5 Activity Discovery](#15-activity-discovery)
    - [1.6 Domain Discovery](#16-domain-discovery)
    - [1.7 Session Continuity](#17-session-continuity) -- forward inheritance, conflict resolution, back-propagation
-   - [1.8 Multi-Dimensional Tag Output Format](#18-multi-dimensional-tag-output-format)
+   - [1.8 Classification Output: SQL-Based Storage](#18-classification-output-sql-based-storage) -- PostgreSQL + DuckDB, schema, query patterns, LiteLLM redundant emission
    - [1.9 The Combinatorial Power](#19-the-combinatorial-power-why-this-matters)
    - [1.10 Taxonomy Evolution Strategy](#110-taxonomy-evolution-strategy)
    - [1.11 Taxonomy Library: Starting Points by Setting](#111-taxonomy-library-starting-points-by-setting) -- solo dev, startup, enterprise, law firm, agency, university
@@ -1465,39 +1465,206 @@ Stored in the SQL-backed storage layer (§1.8 Tag Output Format) keyed by `sessi
 | Audit trail | Back-propagated classifications keep `metadata.original` |
 | Cross-session | Post-MVP |
 
-### 1.8 Multi-Dimensional Tag Output Format
+### 1.8 Classification Output: SQL-Based Storage
 
-Every classified call produces tags in a structured namespace:
+Classification output is stored in a **SQL-based structured schema**, not as opaque tag strings. Earlier iterations of the plan proposed flat LiteLLM `request_tags` (strings like `auto:activity:investigating`) as the primary output channel. That works for rudimentary filtering but breaks down for the actual use cases we care about: multi-facet queries with confidence thresholds, back-propagated updates (§1.7), array-valued facets (§1.2 project arity), array-valued classifier metadata, and efficient aggregation over millions of calls.
+
+The primary output is therefore a SQL schema. LiteLLM request_tags remain available as a **redundant emission** for backwards compatibility with LiteLLM's spend dashboards, but they are not the source of truth.
+
+#### Storage Targets
+
+MVP supports two SQL engines, chosen for complementary roles:
+
+| Engine | Role | Why |
+|--------|------|-----|
+| **PostgreSQL** | Production / multi-user / always-on | LiteLLM already uses PostgreSQL for its own SpendLogs; co-locating classification output in the same database eliminates a moving part. Robust concurrency, mature ecosystem, proven at enterprise scale. |
+| **DuckDB** | Single-user / embedded / analytics-heavy | Zero-server deployment (single `.duckdb` file), columnar storage ideal for the aggregation-heavy queries our dashboards generate, reads Parquet directly for offline analytics. Perfect for solo developers and data-science use cases. |
+
+Both engines speak standard SQL, so the schema is identical and queries are portable. The storage layer is an adapter behind a common interface:
+
+```python
+class ClassificationStore(Protocol):
+    async def write(self, result: ClassifyResult) -> None: ...
+    async def update(self, call_id: str, facet: str, value: Any, confidence: float, source: str) -> None:
+        """Back-propagation write, preserves original in history table."""
+        ...
+    async def query(self, filters: QuerySpec) -> list[Classification]: ...
+    async def aggregate(self, filters: QuerySpec, group_by: list[str]) -> list[Row]: ...
+```
+
+Implementation selection is config-driven:
+
+```yaml
+# declawsified-config.yaml
+storage:
+  engine: postgres   # or: duckdb
+  postgres:
+    url: postgresql://user:pass@db:5432/declawsified
+    # shares database with LiteLLM if co-located
+  duckdb:
+    path: ~/.declawsified/db.duckdb
+```
+
+#### Schema
+
+Five tables. Optimized for read-heavy analytics workloads; written to at call time, read from by CLI, web dashboard, and export tools.
+
+```sql
+-- Every classified call, one row per call (dimensional pointer, not content)
+CREATE TABLE calls (
+    call_id             TEXT PRIMARY KEY,
+    session_id          TEXT,
+    ts                  TIMESTAMPTZ NOT NULL,
+    agent               TEXT NOT NULL,
+    model               TEXT NOT NULL,
+    cost_usd            NUMERIC(12,6),
+    input_tokens        INTEGER,
+    output_tokens       INTEGER,
+    cache_read_tokens   INTEGER,
+    cache_write_tokens  INTEGER,
+    latency_ms          INTEGER,
+    pipeline_version    TEXT NOT NULL,
+    user_id             TEXT,
+    team_alias          TEXT,
+    INDEX idx_calls_ts (ts),
+    INDEX idx_calls_session (session_id),
+    INDEX idx_calls_user_ts (user_id, ts)
+);
+
+-- Every classification (one row per (call, facet, value) triple, supports array-valued facets)
+CREATE TABLE classifications (
+    call_id             TEXT NOT NULL REFERENCES calls(call_id),
+    facet               TEXT NOT NULL,          -- 'context' / 'domain' / 'activity' / 'project' / 'phase' / custom
+    value               TEXT NOT NULL,
+    confidence          REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+    source              TEXT NOT NULL,          -- 'optionA-explicit' / 'tier3-llm' / 'session-inherited-from-{call_id}' / 'back-propagated-from-{call_id}'
+    classifier_name     TEXT NOT NULL,
+    classifier_version  TEXT NOT NULL,
+    rank                INTEGER DEFAULT 1,      -- for array-valued facets (1 = highest-confidence)
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (call_id, facet, value),
+    INDEX idx_class_facet_value (facet, value),
+    INDEX idx_class_call_facet (call_id, facet),
+    INDEX idx_class_confidence (facet, confidence DESC)
+);
+
+-- Classification history (for back-propagation audit trail and classifier evolution analysis)
+CREATE TABLE classifications_history (
+    history_id          BIGSERIAL PRIMARY KEY,
+    call_id             TEXT NOT NULL,
+    facet               TEXT NOT NULL,
+    value               TEXT NOT NULL,
+    confidence          REAL NOT NULL,
+    source              TEXT NOT NULL,
+    classifier_name     TEXT NOT NULL,
+    superseded_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    superseded_by       TEXT,                   -- call_id that triggered back-propagation, if any
+    INDEX idx_hist_call_facet (call_id, facet),
+    INDEX idx_hist_ts (superseded_at)
+);
+
+-- Session state (for in-session forward inheritance)
+CREATE TABLE session_state (
+    session_id          TEXT NOT NULL,
+    facet               TEXT NOT NULL,
+    value               TEXT NOT NULL,
+    confidence          REAL NOT NULL,
+    last_call_id        TEXT NOT NULL,
+    last_updated        TIMESTAMPTZ NOT NULL,
+    started_at          TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (session_id, facet),
+    INDEX idx_session_last (last_updated)
+);
+
+-- Alternatives (runner-up Classifications kept for debugging and classifier tuning)
+CREATE TABLE classification_alternatives (
+    call_id             TEXT NOT NULL,
+    facet               TEXT NOT NULL,
+    alt_value           TEXT NOT NULL,
+    alt_confidence      REAL NOT NULL,
+    alt_source          TEXT NOT NULL,
+    alt_classifier      TEXT NOT NULL,
+    PRIMARY KEY (call_id, facet, alt_value),
+    INDEX idx_alt_call_facet (call_id, facet)
+);
+```
+
+#### Query Patterns
+
+The schema is optimized for the actual query shapes our consumers issue. All produce fast results with the defined indexes:
+
+```sql
+-- "How much did Legal spend on AI this month?"  (CFO view)
+SELECT SUM(c.cost_usd)
+FROM calls c
+JOIN classifications cls USING (call_id)
+WHERE cls.facet = 'domain' AND cls.value = 'legal'
+  AND cls.confidence >= 0.5
+  AND c.ts BETWEEN '2026-04-01' AND '2026-05-01';
+
+-- "Show activity breakdown for engineering this week"
+SELECT cls.value AS activity, COUNT(*) AS calls, SUM(c.cost_usd) AS spend
+FROM calls c
+JOIN classifications cls USING (call_id)
+JOIN classifications d ON d.call_id = cls.call_id AND d.facet = 'domain'
+WHERE cls.facet = 'activity' AND cls.confidence >= 0.5
+  AND d.value = 'engineering'
+  AND c.ts >= NOW() - INTERVAL '7 days'
+GROUP BY cls.value ORDER BY spend DESC;
+
+-- "Which projects span both engineering and billing?" (uses project array support)
+SELECT p.value AS project, COUNT(DISTINCT p.call_id) AS shared_calls
+FROM classifications p
+WHERE p.facet = 'project'
+  AND p.call_id IN (
+    SELECT call_id FROM classifications WHERE facet='domain' AND value='engineering'
+  )
+  AND p.call_id IN (
+    SELECT call_id FROM classifications WHERE facet='domain' AND value='billing'
+  )
+GROUP BY p.value;
+
+-- "Show me all back-propagated classifications from last week" (audit)
+SELECT call_id, facet, value, source FROM classifications
+WHERE source LIKE 'back-propagated-from-%'
+  AND created_at >= NOW() - INTERVAL '7 days';
+```
+
+#### LiteLLM request_tags: Redundant Emission
+
+For backward-compatibility with LiteLLM's native spend dashboards, the pipeline also emits `auto:` tags on LiteLLM's `request_tags` field:
 
 ```
-# Core facets (always present)
+auto:context:business
 auto:domain:engineering
 auto:activity:investigating
 auto:project:auth-service
-
-# Phase (present when detectable)
+auto:project:billing-service                   # second entry for array-valued facet
 auto:phase:maintenance
-
-# Agent identification (always present, trivial extraction)
 auto:agent:claude-code
-auto:agent:model:claude-sonnet-4-5
-
-# Domain pack overlay (when active)
-auto:engineering:error-tracing
-auto:engineering:commit-type:fix
-
-# Confidence scores (per-facet)
-auto:confidence:domain:0.95
+auto:engineering:error-tracing                 # domain pack overlay
 auto:confidence:activity:0.91
-auto:confidence:project:0.80
-auto:confidence:phase:0.72
-
-# Classifier metadata
-auto:classifier:activity:tier1     # which tier resolved this facet
-auto:classifier:version:0.3.1     # classifier version for reproducibility
+auto:classifier:activity:activity_llm_v1
 ```
 
-This format is compatible with LiteLLM's `request_tags` (flat string list) while encoding structured multi-dimensional data. Consumers can filter on any facet dimension independently: "show me all `auto:domain:legal` spend" or "show me all `auto:activity:investigating` across all domains."
+This keeps LiteLLM's existing UI usable (users can filter by any auto:* tag) without making it the source of truth. When a dashboard needs richer queries -- multi-facet filtering, confidence thresholds, back-prop history, session grouping -- it queries the SQL store directly.
+
+#### Data Volume and Performance
+
+Order-of-magnitude estimates for sizing:
+
+- 1 developer: ~500 calls/day → ~180K calls/year → ~1M classifications/year (5 facets avg)
+- 10-person team: ~1.8M calls/year → ~10M classifications/year
+- 100-person team: ~18M calls/year → ~100M classifications/year
+- Enterprise (10K users): ~1.8B calls/year → ~10B classifications/year
+
+Both storage engines handle these volumes comfortably with the indexes above. DuckDB's columnar storage is particularly efficient for the aggregation queries (10-100x faster than row-store for typical OLAP workloads). PostgreSQL scales further with partitioning by `ts` (monthly partitions standard for enterprise).
+
+#### Schema Migration and Versioning
+
+Schema changes (adding facets, renaming facet values, adding alternative table columns) are managed via Alembic migrations (standard Python ORM tooling). The pipeline_version in `calls` and `classifier_version` in `classifications` provide provenance: any query can filter to "only calls classified by pipeline v0.3.1+" to exclude stale classifications during classifier rollouts.
+
+Post-MVP: periodic re-classification of older calls when classifiers improve materially (same call, new version -> new row in `classifications_history`, updated row in `classifications`).
 
 ### 1.9 The Combinatorial Power: Why This Matters
 
