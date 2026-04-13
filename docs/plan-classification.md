@@ -64,7 +64,7 @@
 
 ### Core Design Principles
 
-Research (see `research-*.md` in this folder) settled three principles that drive every downstream design choice. We surface them here because the rest of this section is their elaboration; everything else flows from these.
+Research (see `research-*.md` in this folder) settled four principles that drive every downstream design choice. We surface them here because the rest of this section is their elaboration; everything else flows from these.
 
 **Principle 1: No single taxonomy can satisfy all use cases.**
 
@@ -76,20 +76,23 @@ Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load
 
 Facets are **fixed** in the MVP -- we do not let users add custom facets in v1. Custom facets (Workday Foundation Data Model style) are a post-MVP extension. Fixed facets keep the cognitive model simple, the classifier training surface bounded, and the analytics stable.
 
-**Principle 3: Facets can be extended with "domain packs" -- primarily the `activity` facet, and in principle any facet.**
+**Principle 3: Domain classification changes the `activity` facet taxonomy via "domain packs".**
 
 The 10 universal activities (investigating, building, improving, verifying, researching, planning, communicating, configuring, reviewing, coordinating) work across every knowledge domain. But a law firm billing under UTBMS codes wants `legal:C200 Researching Law` not just `activity:researching`. A GitHub-using engineering team wants `engineering:commit-type:fix` not just `activity:investigating`.
 
-Domain packs (§1.3) are optional YAML overlays shipped with the tool (engineering, legal, marketing, research, finance) that add domain-specific sub-activities underneath the universal 10. Users install packs relevant to their org; the universal taxonomy continues to work on everyone's calls regardless of what packs are active.
+Domain packs (§1.3) are optional YAML overlays shipped with the tool (engineering, legal, marketing, research, finance) that refine the `activity` facet with domain-specific sub-activities underneath the universal 10. Activating a pack effectively selects a more granular activity taxonomy. The universal taxonomy continues to work on everyone's calls regardless of what packs are active.
 
-**Can packs enhance facets other than `activity`?** Architecturally yes -- the pack schema supports extensions to any facet. Practical example:
-- **Phase**: Legal litigation has its own phase vocabulary -- `phase:pleading`, `phase:discovery-L300`, `phase:trial`, `phase:appeal` -- distinct from the universal software-style phases (discovery, implementation, review, deployment, maintenance).
+Architecturally, the pack schema supports extending other facets too (e.g., the `phase` facet could gain legal-specific values: pleading, discovery, trial, appeal). For MVP, packs extend only `activity`; `phase` extension is post-MVP, called out here because the data model accommodates it.
 
-For MVP, packs extend only `activity`. Extending to `phase` is post-MVP, called out here because the data model is designed to accommodate it.
+**Principle 4: Context (personal vs business) changes how projects are discovered.**
+
+The `project` facet's values and discovery mechanisms differ between contexts. In **business context**, projects are specific named initiatives (`auth-service`, `patent-q3-filings`) discovered primarily from structured metadata: LiteLLM team/key assignments, git repositories, branch names, ticket references in prompts. In **personal context**, projects are ongoing life areas (`health`, `finances`, `marathon-training`) discovered primarily from vocabulary matching, working-directory patterns, and tree-path classification against a hybrid taxonomy.
+
+The facet schema is the same across contexts (same 5 facets, same tag namespace). What differs is the **discovery stack** -- see §1.4 for the shared mechanisms and the context-specific variants. Context itself (§1.2 Facet 0) is detected automatically from signals and can be overridden with `!context`.
 
 ---
 
-What follows details the facet schema, the ready-made domain packs, project and context detection, how the system outputs structured tags, how it produces combinatorial insights, how the taxonomy evolves over time, pre-configured profiles for different organizational settings, and the in-prompt communication layer users have for direct classifier control.
+What follows details the facet schema, the ready-made domain packs, project discovery (both contexts), activity and domain discovery, tag output, combinatorial insights, taxonomy evolution, pre-configured profiles, and the in-prompt communication layer for direct classifier control.
 
 ### 1.1 Faceted Classification: The Architectural Foundation
 
