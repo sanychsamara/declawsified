@@ -43,7 +43,7 @@
 1. [Classification Taxonomy Design](#1-classification-taxonomy-design)
    - [1.1 The Problem with a Single Flat Taxonomy](#11-the-problem-with-a-single-flat-taxonomy)
    - [1.2 Faceted Classification: The Architectural Foundation](#12-faceted-classification-the-architectural-foundation)
-   - [1.3 MVP Facet Schema (5 Dimensions)](#13-mvp-facet-schema-5-dimensions) -- domain, activity, project, artifact, phase
+   - [1.3 MVP Facet Schema (6 Dimensions)](#13-mvp-facet-schema-6-dimensions) -- context, domain, activity, project, artifact, phase
    - [1.4 Domain-Specific Activity Taxonomies (Industry Packs)](#14-domain-specific-activity-taxonomies-industry-packs) -- engineering, legal, marketing, research, finance, personal
    - [1.5 Automatic Project Detection](#15-automatic-project-detection)
    - [1.6 Multi-Dimensional Tag Output Format](#16-multi-dimensional-tag-output-format)
@@ -101,9 +101,9 @@ Faceted classification requires **99% fewer definitions** and **99% fewer traini
 - Miller, "The Magical Number Seven" (1956) -- cognitive load limits
 - Cowan, "The Magical Number Four" (2001) -- revised working memory capacity
 
-### 1.3 MVP Facet Schema (5 Dimensions)
+### 1.3 MVP Facet Schema (6 Dimensions)
 
-Every API call is classified along all 5 dimensions simultaneously. Each facet has its own classifier, they run independently and in parallel.
+Every API call is classified along all 6 dimensions simultaneously. Each facet has its own classifier, they run independently and in parallel.
 
 ```
 API Call arrives
@@ -111,6 +111,7 @@ API Call arrives
     v
 +-- Facet Extractors (independent, parallel) --------+
 |                                                      |
+|  [context_classifier]  -> context=business           |
 |  [agent_extractor]     -> agent=claude-code          |
 |  [artifact_extractor]  -> artifact=source            |
 |  [activity_classifier] -> activity=debugging (0.91)  |
@@ -127,6 +128,7 @@ API Call arrives
     |
     v
 Output tags (all dimensions, per-facet confidence):
+  auto:context:business
   auto:agent:claude-code
   auto:domain:engineering
   auto:activity:debugging
@@ -136,6 +138,45 @@ Output tags (all dimensions, per-facet confidence):
   auto:confidence:activity:0.91
   auto:confidence:phase:0.78
 ```
+
+#### Facet 0: `context` -- Personal or Business (WHAT KIND OF USE)
+
+This is the meta-facet. It runs first because it scopes the vocabulary of other facets (particularly `project` and `domain`). Same user, same machine can generate both personal and business calls; classifying each correctly unlocks every other facet.
+
+**Values (MVP)**: `business`, `personal`.
+
+**Why this matters**:
+- `project=marathon-training` makes sense only when `context=personal`
+- `project=auth-service` makes sense only when `context=business`
+- Mixing them in the same bucket destroys every downstream report
+- CFO wants business-only; individual users want personal-only
+
+**Enabled by default.** Unlike domain packs (which are opt-in overlays), `context` classification is always on. A user doing only business work sees `context=business` on every call -- no harm done. A user with mixed use gets the split they need.
+
+**Detection (signal-first, content-fallback)**:
+
+| Signal | Direction | Strength |
+|--------|-----------|----------|
+| Time of day: 6pm-11pm local | personal | Medium |
+| Time of day: 5am-8am local | personal | Weak |
+| Day of week: Saturday/Sunday | personal | Strong |
+| Working directory: `~/Documents/Personal/`, `~/Taxes/`, `~/Recipes/`, `~/Health/`, `~/Journal/`, `~/Finances/` | personal | Very Strong |
+| Working directory: `~/dev/`, `~/src/`, `~/projects/`, `~/work/`, `/Users/*/Code/` | business | Very Strong |
+| File types: `.py`, `.ts`, `.go`, `.rs`, `.java` | business | Strong |
+| File types: `.md` (personal notes), `.docx` (non-legal), recipe formats | personal | Medium |
+| No git repository in workdir | personal | Medium |
+| Tool mix: Bash/Grep-heavy code work | business | Strong |
+| Tool mix: Read/Write on prose, no Bash | personal | Medium |
+| Account email domain (gmail, icloud, outlook) | personal | Medium |
+| Account email domain (corporate) | business | Medium |
+| Pronouns: "I/me/my/my wife/my kid" | personal | Strong (needs prompt reading) |
+| Pronouns: "we/our team/our customer" | business | Strong (needs prompt reading) |
+
+**Override via in-prompt command**: `!context personal` or `!context business` forces the classifier for the current call and session (see §1.11).
+
+**Decision rule**: Sum weighted signals. If `personal_score > business_score + 0.3` -> `context=personal`. Otherwise -> `context=business` (the safer default for enterprise deployments). Ambiguous calls get tagged with lower confidence; users can correct via `!correct context=personal`.
+
+See §1.4 for the personal-context project vocabulary (the 10 default life areas used as project identifiers when context=personal) and the tree-path discovery mechanism for growing that vocabulary.
 
 #### Facet 1: `domain` -- Organizational Function (WHAT PART OF THE BUSINESS)
 
@@ -211,7 +252,7 @@ This is the original "work type" classifier, now one facet among five. The value
 
 Automatic project detection -- not deferred to post-MVP. This is the facet that answers "where is the money going?" and every enterprise buyer needs it from day 1.
 
-**Personal use variant**: For personal classification, the `project` facet is replaced by `area` (ongoing life area: health, finances, etc.). See §1.4 Personal Pack for the full taxonomy.
+**Personal-context values**: When `context=personal` (§1.3 Facet 0), `project` values are personal projects: default life areas (health, finances, etc.) or user-declared personal initiatives (marathon-training, home-renovation-2026). Same facet, different vocabulary. See §1.4 Personal Context subsection for the default values and discovery mechanism.
 
 **Detection hierarchy (most specific wins)**:
 
@@ -401,31 +442,28 @@ Based on Big 4 service categories and standard accounting workflow.
 | `reviewing` | financial-review, tax-review, audit-review, disclosure-review |
 | `coordinating` | engagement-management, multi-entity-coordination, external-audit-support |
 
-#### Pack: Personal / Life
+#### Personal Context: Project Taxonomy and Discovery
 
-**Personal use requires a fundamentally different taxonomy** than professional work. The core distinction from Tiago Forte's PARA method:
+When `context=personal` (see §1.3 Facet 0), the `project` facet uses a different vocabulary than business. Instead of specific work initiatives (auth-service, patent-q3), personal projects are ongoing life areas (health, finances, relationships) plus any user-declared personal initiatives (marathon-training, home-renovation-2026, etc.).
 
-- **Projects** (work world) = short-term efforts with a deadline and a "done" state ("ship auth-service v2 by Q2")
-- **Areas** (personal world) = ongoing spheres of responsibility with a standard to maintain indefinitely, no completion state ("health", "parenting", "finances")
+The same 6 facets apply across both contexts -- only the values change. There is no separate personal "area" facet; `project` handles it uniformly:
 
-For professional use, the `project` facet captures discrete initiatives. For personal use, most AI activity belongs to an **Area** (recurring, no deadline) with occasional **Goals** nested inside (time-bounded projects within an area).
+| Facet | context=business | context=personal |
+|-------|------------------|------------------|
+| `project` | auth-service, patent-q3-filings, frontend-redesign | health, finances, marathon-training, home-renovation-2026 |
+| `activity` | same 10 universal activities | same 10 universal activities |
+| `domain` | engineering, legal, marketing, ... | (less relevant; can default to `life`) |
+| `artifact` | source, test, config, infra, ... | notes, docs, receipts, photos, ... |
+| `phase` | discovery, implementation, review, ... | (less structured in personal use) |
 
-Concrete mappings:
+This is not a pack -- there is no "personal pack" to activate. Context detection (§1.3) does the switch automatically. The content below describes **what personal project values look like** and **how they get discovered**.
 
-| Professional | Personal Equivalent |
-|--------------|---------------------|
-| project=auth-service | area=health |
-| project=frontend-redesign | area=finances |
-| project=patent-q3-filings | area=health (context=personal scopes the domain vocabulary) |
+##### Default Personal Projects (10 Life Areas)
 
-**The personal pack replaces the `project` facet with an `area` facet representing an ongoing life area.**
+Synthesized across PARA (Forte), Wheel of Life (coaching), PERMA (Seligman positive psychology), Flourishing Life Model, and Maslow's hierarchy. These 7 core + 3 extended appear in 5+ frameworks each. They serve as **default `project` values when no user-declared personal project matches**:
 
-##### Personal Life Areas (10 Universal Areas)
-
-Synthesized across PARA (Forte), Wheel of Life (coaching), PERMA (Seligman positive psychology), Flourishing Life Model, and Maslow's hierarchy. These 7 core + 3 extended appear in 5+ frameworks each:
-
-| Area | Description | Common Sub-Areas |
-|------|-------------|------------------|
+| Project | Description | Common Sub-Projects |
+|---------|-------------|---------------------|
 | `health` | Physical + mental wellbeing, fitness, medical, sleep, nutrition | fitness, nutrition, sleep, medical-care, mental-health, chronic-conditions |
 | `finances` | Budgeting, taxes, investing, debt, major purchases | budgeting, taxes, investing, debt-management, major-purchases, retirement-planning |
 | `relationships` | Family, friends, romantic, social connections | family, friends, romantic, social, networking-personal, conflict-resolution |
@@ -437,125 +475,49 @@ Synthesized across PARA (Forte), Wheel of Life (coaching), PERMA (Seligman posit
 | `personal-growth` | Journaling, therapy, meditation, identity work, reflection | journaling, therapy-notes, meditation, values-reflection, habits, mindset |
 | `admin` | Bills, scheduling, errands, documents, government forms | bills, scheduling, documents, government, insurance, subscriptions |
 
-**Extended areas** (opt-in for users who want them):
-- `spirituality` — faith practice, prayer, spiritual reading, religious community
-- `community-service` — volunteering, activism, donations, civic engagement
-- `creative-self-expression` — separate from hobbies when it's identity-level (writing, music, art)
+**Extended defaults** (opt-in for users who want them):
+- `spirituality` -- faith practice, prayer, spiritual reading, religious community
+- `community-service` -- volunteering, activism, donations, civic engagement
+- `creative-self-expression` -- separate from hobbies when it's identity-level (writing, music, art)
 
-##### Personal Activity Taxonomy (Mapped to Universal 10)
+User-declared personal projects (e.g., `!new-project marathon-training`) override the defaults. Tree-path discovery (below) surfaces recurring patterns as candidates for new personal projects.
 
-The 10 universal activities still apply, but with personal-life sub-activities:
+##### Personal-Context Activity Examples
 
-| Activity | Personal Sub-Activities |
-|----------|------------------------|
-| `investigating` | symptom-checking, troubleshooting, diagnosing, researching-problem |
+The `activity` facet uses the **same 10 universal activities** across both contexts (no separate personal taxonomy -- this is what "unify language" means). Example expressions in personal use:
+
+| Activity | Personal-Context Examples |
+|----------|--------------------------|
+| `investigating` | symptom-checking, troubleshooting an appliance, diagnosing, researching a medical question |
 | `building` | meal-planning, workout-creation, creative-project, side-project, decor-planning |
 | `improving` | habit-building, skill-practice, editing, refinement, form-correction |
 | `verifying` | checking-facts, fact-verification, second-opinion, proofreading |
 | `researching` | learning, reading, comparing-options, medical-research, product-research |
-| `planning` | goal-setting, trip-planning, budget-planning, schedule-planning, life-planning |
+| `planning` | trip-planning, budget-planning, schedule-planning, life-planning |
 | `communicating` | email-draft, journaling, difficult-conversation-prep, card-writing, social-post |
 | `configuring` | account-setup, app-setup, home-setup, tool-configuration |
-| `reviewing` | self-reflection, reviewing-goals, checking-progress, evaluating-options |
+| `reviewing` | self-reflection, checking-progress, evaluating-options |
 | `coordinating` | family-scheduling, group-trip-planning, event-coordination |
 
-##### Detecting Personal vs Professional Use
+##### Personal-Project Vocabulary Signals
 
-The hardest detection problem for the personal pack isn't "which area" -- it's "is this personal at all?". A software engineer asking Claude about Python syntax at 7pm from their work laptop is ambiguous. Our detection uses a two-tier signal model:
-
-**Tier A: Signal-only detection (no prompt reading required)**
-
-| Signal | Score Direction | Strength |
-|--------|-----------------|----------|
-| Time of day: 6pm-11pm local | personal | Medium |
-| Time of day: 5am-8am local | personal | Weak |
-| Day of week: Saturday/Sunday | personal | Strong |
-| Working directory: `~/Documents/Personal/`, `~/Taxes/`, `~/Family/`, `~/Recipes/`, `~/Health/` | personal | Very Strong |
-| Working directory: `~/dev/`, `~/src/`, `~/projects/`, `~/work/`, `/Users/x/Code/` | professional | Very Strong |
-| File types touched: `.py`, `.ts`, `.go`, `.rs` | professional | Strong |
-| File types: `.docx` (non-legal), `.xlsx` (non-finance), personal `.md` notes | personal | Medium |
-| No git repository in workdir | personal | Medium |
-| Tool mix: Read/Write on prose, no Bash/Grep | personal | Medium |
-| Short session (< 5 min, 1-3 turns) | personal | Weak |
-| Long code-heavy session (> 30 min, many Bash/Edit) | professional | Strong |
-| Machine hostname contains "mac-personal", "home-pc" | personal | Strong |
-| Account: gmail.com, outlook.com, iCloud.com | personal | Medium |
-| Account: @company.com, @corporate-domain | professional | Medium |
-
-**Tier B: Content-based detection (requires prompt reading opt-in)**
-
-| Signal | Score Direction |
-|--------|-----------------|
-| First-person singular dominant ("I/me/my") | personal |
-| First-person plural dominant ("we/our/the team") | professional |
-| Vocab: wife/husband/partner/kid/mom/dad/doctor/my budget | personal |
-| Vocab: the team, our customer, the PR, our codebase, sprint, stakeholders | professional |
-| Emotional loading, hedging, uncertainty | personal (weakly) |
-| Code blocks, error messages, stack traces | professional |
-| Medical terms, recipes, workout plans, financial numbers | personal |
-
-**Classification decision**:
-- Sum weighted signals across both tiers
-- If `personal_score > professional_score + 0.3`: classify as personal
-- Route to `personal` pack
-- If ambiguous: keep work pack active, tag call with `context:ambiguous` for later review
-
-##### Personal Pack Auto-Activation (Different from Work Packs)
-
-The pack auto-detection algorithm (§1.4) adapts for personal use with looser thresholds because:
-1. Personal use is often lower-volume (10-50 calls/day vs 100-1000 for work)
-2. Signals are often stronger (time-of-day, workdir) but fewer
-
-**Adjusted thresholds for personal pack**:
-
-| Rule | Work Packs | Personal Pack |
-|------|-----------|--------------|
-| Min calls before suggesting | 50 | 20 |
-| Score threshold to suggest | 0.7 | 0.6 |
-| Score threshold to deactivate | 0.3 over 50 calls | 0.2 over 20 calls |
-| Rolling window | 20 calls | 10 calls |
-
-##### Personal Pack Detection Signals
+Detecting **which personal project** a call belongs to (e.g., `project=health` vs `project=finances`) uses per-project vocabulary inventories. These do not decide `context` (that's §1.3) -- they decide which default life-area project applies once context is already personal.
 
 ```yaml
-personal:
-  strong:
-    workdir_patterns:
-      - "~/Documents/Personal/**"
-      - "~/Taxes/**"
-      - "~/Family/**"
-      - "~/Recipes/**"
-      - "~/Health/**"
-      - "~/Journal/**"
-      - "~/Finances/**"
-    temporal:
-      - weekend: weight 0.7
-      - after_hours: weight 0.5
-    vocab:
-      pronoun_patterns:
-        - "my (wife|husband|partner|kid|son|daughter|mom|dad|doctor|boss)"
-        - "I want to (lose|quit|start|learn)"
-      area_vocab:
-        health: [symptom, diagnosis, workout, diet, medication, therapy, doctor, hospital]
-        finances: [budget, 401k, mortgage, tax, savings, debt, invest, retirement]
-        relationships: [partner, spouse, breakup, marriage, dating, friend, family]
-        parenting: [school, homework, teacher, pediatrician, playdate, tantrum, baby]
-        home: [recipe, dinner, grocery, laundry, repair, plumber, landlord]
-        career-personal: [resume, interview, offer letter, job hunt, networking]
-        learning: [tutorial, course, book, language, practice]
-        fun-hobbies: [vacation, travel, hobby, game, movie, concert]
-  medium:
-    vocab: [personally, myself, my life, my goal, personal]
-    file_types: [.md (notes), .txt (personal), .docx (non-legal), recipe formats]
-    no_git: true
-  exclusion:
-    vocab: [the team, our sprint, customer, stakeholder, deploy, production, CI, merge]
-    workdir_patterns:
-      - "**/node_modules/**"
-      - "**/.git/**"
-      - "**/src/**"
-      - "**/dist/**"
+personal-project-vocab:
+  health: [symptom, diagnosis, workout, diet, medication, therapy, doctor, hospital]
+  finances: [budget, 401k, mortgage, tax, savings, debt, invest, retirement]
+  relationships: [partner, spouse, breakup, marriage, dating, friend, family]
+  parenting: [school, homework, teacher, pediatrician, playdate, tantrum, baby]
+  home: [recipe, dinner, grocery, laundry, repair, plumber, landlord]
+  career-personal: [resume, interview, offer letter, job hunt, networking]
+  learning: [tutorial, course, book, language, practice]
+  fun-hobbies: [vacation, travel, hobby, game, movie, concert]
+  personal-growth: [journal, meditate, therapy, reflection, habit, identity]
+  admin: [bill, subscription, renewal, appointment, form, document]
 ```
+
+Rules for scoring are the same as business domain signals (strong/medium/weak with TF-IDF-style normalization) -- see the Pack Auto-Detection content later in this section for the shared algorithm.
 
 ##### Personal Projects Discovery: Tree-Path Classification Against a Hybrid Taxonomy
 
@@ -1861,13 +1823,13 @@ custom_facets: [client, campaign, channel, billable]
 
 ```yaml
 profile: personal
-domain_facet: replaced  # no domains; areas instead
-active_packs: [personal]
-primary_view: area + activity
-project_detection: disabled  # replaced by area detection
-area_detection: signal-only (time, workdir, vocabulary)
-cross_customer_sharing: opt-in-per-area
-dashboard_view: life-wheel  # radial chart, not bar/line
+context_default: personal                   # short-circuit context detection
+domain_facet: disabled                      # not used in personal context
+active_packs: []                            # no business packs needed
+primary_view: project + activity
+project_detection: signal-only (time, workdir, vocabulary, user-declared)
+cross_customer_sharing: opt-in-per-project
+dashboard_view: life-wheel                  # radial chart, not bar/line
 ```
 
 #### Profile: Personal + Professional (Hybrid User)
@@ -1876,26 +1838,23 @@ For the common case: professional using AI for both work and personal tasks on t
 
 ```yaml
 profile: hybrid
-domain_facet: full  # work domains
-active_packs: [engineering, personal]  # or whatever work pack + personal
-primary_view: context(work|personal) + area-or-project + activity
-project_detection: enabled for work contexts
-area_detection: enabled for personal contexts
-personal_work_classifier: enabled  # signal-based discriminator runs first
-session_split: automatic  # session can contain both contexts, classified per-call
+context_default: auto                       # classify context per-call
+active_packs: [engineering]                 # business-context packs
+primary_view: context + project + activity
+project_detection: enabled (both contexts; different vocabularies)
+session_split: automatic                    # session can contain both contexts, classified per-call
 ```
 
-**Key behavior**: The personal-vs-work classifier (§1.4 Personal Pack detection signals) runs first. Work calls get the work pack's classification; personal calls get the personal pack's classification. Same user, same session, different facet schemas applied per-call.
+**Key behavior**: The context classifier (§1.3 Facet 0) runs first. Business calls get business-pack sub-activity classification and business-project vocabulary. Personal calls get the personal-project vocabulary (life-area defaults + tree-path discovery). Same user, same session, classified per-call.
 
 #### Profile: Student
 
 ```yaml
 profile: student
-domain_facet: simplified  # personal + coursework
-active_packs: [personal, education-overlay]
-primary_view: course + activity + assignment
-project_detection: course codes (CS101, MATH240) and assignment names
-area_detection: subset  # primarily learning, career-personal, personal-growth
+context_default: personal                   # students are mostly personal context
+active_packs: [education-overlay]
+primary_view: project + activity + assignment
+project_detection: course codes (CS101, MATH240) + assignment names + life-area defaults
 custom_facets: [course, assignment, exam]
 ```
 
@@ -1996,6 +1955,7 @@ The multi-line anchor (`(?m)^`) is critical: prose flows around commands in mult
 
 | Command | Purpose | Example |
 |---------|---------|---------|
+| `!context <personal\|business>` | Force context for this call and session | `!context personal` |
 | `!project <name>` | Assign project (this call + session) | `!project auth-service` |
 | `!new-project <name> [key=val ...]` | Declare and register new project | `!new-project patent-q3 domain=legal cost_center=LEG-07` |
 | `!activity <value>` | Override activity classification | `!activity improving` |
@@ -2011,9 +1971,6 @@ The multi-line anchor (`(?m)^`) is critical: prose flows around commands in mult
 | `!pack-default <name>` | Set default pack(s) for current project | `!pack-default legal,research` |
 | `!pack-auto <on\|off>` | Toggle auto-suggestion acceptance | `!pack-auto on` |
 | `!pack-no-thanks <name>` | Decline pack suggestion (30-day cooldown) | `!pack-no-thanks marketing` |
-| `!area <name>` | Set personal life area (personal pack) | `!area health` |
-| `!personal` | Force personal classification for this call | `!personal` |
-| `!work` | Force professional classification for this call | `!work` |
 | `!subarea <parent>/<name>` | Create or assign personal sub-area | `!subarea fun-hobbies/gardening` |
 | `!specialization install <name>` | Import community specialization template | `!specialization install gardening` |
 | `!help` | Out-of-band help (doesn't reach LLM) | `!help` |
