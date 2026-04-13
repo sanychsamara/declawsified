@@ -338,7 +338,7 @@ This gives immediate value with zero additional UI code. For many users (especia
 
 ### 2.5 Notification Channel Priority (Pack Suggestions, Project Discovery)
 
-`plan-classification.md` §1.4 specified that pack suggestions must be out-of-band and non-nagging. Here is the concrete channel priority:
+`plan-classification.md` §1.3 specified that pack suggestions must be out-of-band and non-nagging. Here is the concrete channel priority:
 
 **Priority 1: CLI on-demand** -- User runs `declawsified packs` or `declawsified projects` and sees current state + pending suggestions. Zero nagging.
 

@@ -45,7 +45,7 @@
    - [1.1 Faceted Classification: The Architectural Foundation](#11-faceted-classification-the-architectural-foundation)
    - [1.2 MVP Facet Schema (5 Dimensions)](#12-mvp-facet-schema-5-dimensions) -- context, domain, activity, project, phase
    - [1.3 Domain-Specific Activity Taxonomies (Industry Packs)](#13-domain-specific-activity-taxonomies-industry-packs) -- engineering, legal, marketing, research, finance, personal
-   - [1.4 Automatic Project Detection](#14-automatic-project-detection)
+   - [1.4 Business Projects Discovery](#14-business-projects-discovery)
    - [1.5 Multi-Dimensional Tag Output Format](#15-multi-dimensional-tag-output-format)
    - [1.6 The Combinatorial Power](#16-the-combinatorial-power-why-this-matters)
    - [1.7 Taxonomy Evolution Strategy](#17-taxonomy-evolution-strategy)
@@ -1586,9 +1586,25 @@ Sees engineering signals in code-heavy calls, legal signals in review calls
 - MAG Fields of Study: 700K fields, 5 levels, CC0
 - WildChat 1M (Allen AI, arXiv 2405.01470) -- real ChatGPT interactions, mineable for AI-use taxonomy
 
-### 1.4 Automatic Project Detection
+### 1.4 Business Projects Discovery
 
-Project detection is not optional and cannot wait for post-MVP. It is the #1 value proposition for any organization beyond a single developer.
+Project detection is not optional and cannot wait for post-MVP. It is the #1 value proposition for any organization beyond a single developer. This section covers discovery when `context=business`; personal-context discovery is in §1.3 under Personal Projects Discovery and shares most of the same mechanisms.
+
+**The stack (shared with personal, different vocabularies):**
+
+| Option | Mechanism | Cost | Coverage |
+|--------|-----------|------|----------|
+| **A** | User explicit declaration (`!project`, `!new-project`, `#project:X`, tag headers) | ~0 | 5-15% (power users / enterprise mandate) |
+| **B** | Metadata mapping: LiteLLM team/key, git repo, git branch prefixes, working directory | ~0 | 60-80% when enterprise uses virtual keys / conventional git |
+| **B2** | Ticket references in prompt prose (`AUTH-123`, `PROJ-456`) | ~0 | 5-15% when users write ticket refs naturally |
+| **C** | Domain-pack vocabulary matching (engineering keywords land on eng projects, legal keywords on legal projects) | ~0 | Tightens which pack-specific project the call belongs to |
+| **D** | Tree-path classification against hybrid taxonomy (shared with personal; business subtree = engineering / legal / finance / marketing sub-projects) | Tier-3 LLM, ~$0.0003/call | Long-tail coverage for novel / cross-domain projects |
+| **E** | HDBSCAN clustering -> Neural Taxonomy Expansion (same mechanism as personal) | ~0 per call, needs 20+ calls to trigger | Fallback for patterns the registry does not know |
+| **F** | Session continuity (inherit from previous call in session) | ~0 | Smooths subsequent calls in the same session |
+
+Options A, B, B2, D, E, F are mechanically identical to the personal-context equivalents (§1.3 Personal Projects Discovery) -- only vocabularies, registries, and taxonomy subtrees differ. Option C's business variant matches against domain-pack vocabulary inventories rather than personal life-area vocabularies.
+
+The detection algorithm below implements the priority cascade A -> B -> B2 -> F. Options D and E are triggered when the cascade returns `unattributed` at volume. Option C runs alongside to produce the `domain` facet in parallel.
 
 #### Detection Algorithm
 
