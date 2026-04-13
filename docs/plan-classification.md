@@ -7,38 +7,6 @@
 - [`plan-domain-packs.md`](./plan-domain-packs.md) -- industry-specific activity sub-taxonomies and pack auto-detection (referenced throughout; details live in that file).
 
 ---
-## EDITOR TODO 
-
-1. Extract "Personal/Life" classification from "Packs" into it's own "context" classification (personal vs business), that should be available by default. Unify language across personal and business classification. Replace "area" with "project" for describing areas of interest in personal context. 
-
-2. Drop personal goals detection completely. 
-
-3. Drop "Privacy Architecture for Personal Classification" and all privacy related discussion completely.
-
-4. Drop "Personal Pack UI Considerations"
-
-5. Drop "Facet 4: `artifact`" completely - this is too granular classification, no value
-
-6. Rename " Primary Discovery Mechanism: Tree-Path Classification Against a Hybrid Taxonomy" to "Personal Projects Discovery". Outline multiple possible options (some of them are shared from business projects discovery) with one of them being current "Tree-Path Classification Against a Hybrid Taxonomy"
-
-7. Add explicit section on "Business Project Discovery", summarize all explored strategies during research (using working dir, names from shared documents, manual override)
-
-8. Create new section "Project Discovery", move Personal Project Discovery and Business Project Discovery there. Rewrite to remove duplicates, extract shared section that applies to both contexts
-
-9. Create new section for each of other facets discovery "Activity Discovery", "Domain Discovery"
-
-10. Rewrite introduction to "Classification Taxonomy Design", outlining core principles (and decision already made during research phase), which are:
-
-- No single taxonomy can satisfy all use cases
-- Faceted classification with 5-6 fixed taxonomies is a reasonable start
-- Domain classification changes activity facet taxonomy with "domain packs" 
-- Context (personal vs business) changes how projects are being discovered
-
-11. Delete "1.1 The Problem with a Single Flat Taxonomy" after creating introduction section with core design principals
-
-12. Move all details about domains packs into a separate document called plan-domain-packs.md
-
-
 
 ## Table of Contents
 
