@@ -557,20 +557,6 @@ personal:
       - "**/dist/**"
 ```
 
-##### Personal Pack UI Considerations
-
-Personal use has different UI requirements:
-
-1. **Hide cost prominently**: Personal users care less about dollars (use is often tiny anyway) and more about time-spent-by-area. Reframe the dashboard: "Your AI assistant helped you with 47 health questions this month" vs "You spent $2.31 on health this month".
-
-2. **Life Wheel visualization**: For personal users, the web dashboard shows a radial "Wheel of Life" chart with AI usage per area as the primary visualization. Matches existing coaching/productivity mental models.
-
-3. **Goal progress tracking**: Personal goals (marathon training, job search) benefit from progress tracking -- show call density over time, goal completion estimates.
-
-4. **Privacy-first defaults**: Personal pack ships with "Signal-only" mode enabled by default. User must explicitly opt into content-based classification.
-
-5. **Sensitive category warnings**: When the classifier detects `personal-sensitive` area, surface a one-time notice: "This looks like a health-related question. Declawsified classifies this privately on your device only. [Learn more] [Disable personal classification]".
-
 ##### Primary Discovery Mechanism: Tree-Path Classification Against a Hybrid Taxonomy
 
 The core problem: **how do we let a user's individual areas emerge without burdening them with taxonomy management?** We've established that fixed taxonomies are too rigid and pure clustering produces unlabeled, unstable output. Academic research on Pinterest's Pin2Interest, Netflix's altgenres, and Amazon's hierarchical product classification points to a superior approach:
