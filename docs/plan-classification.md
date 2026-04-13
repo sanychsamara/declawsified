@@ -5,6 +5,38 @@
 **Companion doc:** [`plan.md`](./plan.md) -- top-level architecture, repo structure, execution plan, success criteria.
 
 ---
+## EDITOR TODO 
+
+1. Extract "Personal/Life" classification from "Packs" into it's own "context" classification (personal vs business), that should be available by default. Unify language across personal and business classification. Replace "area" with "project" for describing areas of interest in personal context. 
+
+2. Drop personal goals detection completely. 
+
+3. Drop "Privacy Architecture for Personal Classification" and all privacy related discussion completely.
+
+4. Drop "Personal Pack UI Considerations"
+
+5. Drop "Facet 4: `artifact`" completely - this is too granular classification, no value
+
+6. Rename " Primary Discovery Mechanism: Tree-Path Classification Against a Hybrid Taxonomy" to "Personal Projects Discovery". Outline multiple possible options (some of them are shared from business projects discovery) with one of them being current "Tree-Path Classification Against a Hybrid Taxonomy"
+
+7. Add explicit section on "Business Project Discovery", summarize all explored strategies during research (using working dir, names from shared documents, manual override)
+
+8. Create new section "Project Discovery", move Personal Project Discovery and Business Project Discovery there. Rewrite to remove duplicates, extract shared section that applies to both contexts
+
+9. Create new section for each of other facets discovery "Activity Discovery", "Domain Discovery"
+
+10. Rewrite introduction to "Classification Taxonomy Design", outlining core principles (and decision already made during research phase), which are:
+
+- No single taxonomy can satisfy all use cases
+- Faceted classification with 5-6 fixed taxonomies is a reasonable start
+- Domain classification changes activity facet taxonomy with "domain packs" 
+- Context (personal vs business) changes how projects are being discovered
+
+11. Delete "1.1 The Problem with a Single Flat Taxonomy" after creating introduction section with core design principals
+
+12. Move all details about domains packs into a separate document called plan-domain-packs.md
+
+
 
 ## Table of Contents
 
@@ -26,7 +58,6 @@
 4. [Memory & Taxonomy System Research](#4-memory--taxonomy-system-research)
 
 ---
-
 ## 1. Classification Taxonomy Design
 
 ### 1.1 The Problem with a Single Flat Taxonomy
@@ -152,18 +183,18 @@ This is the original "work type" classifier, now one facet among five. The value
 
 **Mapping from the original 6 engineering categories**:
 
-| Original | New Universal | Notes |
-|----------|--------------|-------|
-| debugging | `investigating` | Same action, domain-neutral name |
-| feature-dev | `building` | Same action, domain-neutral name |
-| refactoring | `improving` | Same action, domain-neutral name |
-| testing | `verifying` | Same action, domain-neutral name |
-| research | `researching` | Same action, already domain-neutral |
-| devops | `configuring` | Same action, domain-neutral name |
-| (new) | `planning` | Was missing -- critical for PM, legal, product |
-| (new) | `communicating` | Was missing -- significant AI use case |
-| (new) | `reviewing` | Was missing -- code review, document review |
-| (new) | `coordinating` | Was missing -- cross-team work, project mgmt |
+| Original    | New Universal   | Notes                                          |
+| ----------- | --------------- | ---------------------------------------------- |
+| debugging   | `investigating` | Same action, domain-neutral name               |
+| feature-dev | `building`      | Same action, domain-neutral name               |
+| refactoring | `improving`     | Same action, domain-neutral name               |
+| testing     | `verifying`     | Same action, domain-neutral name               |
+| research    | `researching`   | Same action, already domain-neutral            |
+| devops      | `configuring`   | Same action, domain-neutral name               |
+| (new)       | `planning`      | Was missing -- critical for PM, legal, product |
+| (new)       | `communicating` | Was missing -- significant AI use case         |
+| (new)       | `reviewing`     | Was missing -- code review, document review    |
+| (new)       | `coordinating`  | Was missing -- cross-team work, project mgmt   |
 
 **Bloom's cognitive level as an optional sub-dimension of activity**:
 
@@ -180,7 +211,7 @@ This is the original "work type" classifier, now one facet among five. The value
 
 Automatic project detection -- not deferred to post-MVP. This is the facet that answers "where is the money going?" and every enterprise buyer needs it from day 1.
 
-**Personal use variant**: For personal classification, the `project` facet is replaced by two facets: `area` (ongoing life area: health, finances, etc.) and `goal` (time-bounded initiative within an area). See §1.4 Personal Pack for the full taxonomy. This is the PARA distinction between ongoing Areas and time-bounded Projects.
+**Personal use variant**: For personal classification, the `project` facet is replaced by `area` (ongoing life area: health, finances, etc.). See §1.4 Personal Pack for the full taxonomy.
 
 **Detection hierarchy (most specific wins)**:
 
@@ -385,9 +416,9 @@ Concrete mappings:
 |--------------|---------------------|
 | project=auth-service | area=health |
 | project=frontend-redesign | area=finances |
-| project=patent-q3-filings | goal=marathon-training (inside area=health) |
+| project=patent-q3-filings | area=health (context=personal scopes the domain vocabulary) |
 
-**The personal pack replaces the `project` facet with two facets: `area` and `goal`.**
+**The personal pack replaces the `project` facet with an `area` facet representing an ongoing life area.**
 
 ##### Personal Life Areas (10 Universal Areas)
 
@@ -427,23 +458,6 @@ The 10 universal activities still apply, but with personal-life sub-activities:
 | `configuring` | account-setup, app-setup, home-setup, tool-configuration |
 | `reviewing` | self-reflection, reviewing-goals, checking-progress, evaluating-options |
 | `coordinating` | family-scheduling, group-trip-planning, event-coordination |
-
-##### Personal Goal Detection
-
-Within each Area, Goals are time-bounded projects. Goal detection signals:
-
-| Signal | Pattern | Example |
-|--------|---------|---------|
-| Explicit deadline in prompt | "by June 1", "before the wedding", "next month" | `goal=tax-return-2026` under `area=finances` |
-| Named project in prompt | "my marathon training", "our Europe trip" | `goal=marathon-training` under `area=health` |
-| Recurring theme over weeks | Same topic appearing in 10+ calls over 2+ weeks | `goal=job-search-q2-2026` under `area=career-personal` |
-| Explicit `!new-goal` command | User declares | `!new-goal buy-first-house area=finances` |
-| Event-linked | Birthday, holiday, milestone nearby | `goal=daughter-birthday-2026` under `area=parenting` |
-
-Goals inherit their Area from the project registry or from explicit user tagging:
-```
-!new-goal marathon-training area=health deadline=2026-06-15
-```
 
 ##### Detecting Personal vs Professional Use
 
@@ -1921,7 +1935,7 @@ custom_facets: [client, campaign, channel, billable]
 profile: personal
 domain_facet: replaced  # no domains; areas instead
 active_packs: [personal]
-primary_view: area + goal + activity
+primary_view: area + activity
 project_detection: disabled  # replaced by area detection
 area_detection: signal-only (time, workdir, vocabulary)
 privacy_mode: signal-only  # default: never read prompt content
@@ -2073,7 +2087,6 @@ The multi-line anchor (`(?m)^`) is critical: prose flows around commands in mult
 | `!pack-auto <on\|off>` | Toggle auto-suggestion acceptance | `!pack-auto on` |
 | `!pack-no-thanks <name>` | Decline pack suggestion (30-day cooldown) | `!pack-no-thanks marketing` |
 | `!area <name>` | Set personal life area (personal pack) | `!area health` |
-| `!new-goal <name> area=<area>` | Declare personal goal inside an area | `!new-goal marathon-training area=health deadline=2026-06-15` |
 | `!personal` | Force personal classification for this call | `!personal` |
 | `!work` | Force professional classification for this call | `!work` |
 | `!privacy <signal-only\|content\|local>` | Change privacy mode | `!privacy signal-only` |
