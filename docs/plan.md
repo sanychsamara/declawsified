@@ -520,7 +520,7 @@ declawsified/                         # Repository root
 |   |   |   |   |-- loader.py         # Load pack YAML from declawsified-data
 |   |   |   |   |-- detector.py       # Per-pack signal scoring
 |   |   |   |   `-- state_machine.py  # INACTIVE/SUGGESTED/ACTIVE
-|   |   |   |-- taxonomy/             # Tree-path classification (plan-classification.md §1.4)
+|   |   |   |-- taxonomy/             # Tree-path classification (plan-classification.md §1.3)
 |   |   |   |   |-- __init__.py
 |   |   |   |   |-- tree.py           # SKOS-compatible tree
 |   |   |   |   |-- index.py          # HNSW retrieval (Tier 1)
@@ -992,7 +992,7 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
 - [ ] Always 100% confidence, pure rule-based
 
 **Facet 3: Project** (critical)
-- [ ] Implement project detection algorithm (plan-classification.md §1.5):
+- [ ] Implement project detection algorithm (plan-classification.md §1.4):
   - Priority 0: In-prompt `!project` / `#project:X` (from parser)
   - Priority 1: Explicit tags in request headers
   - Priority 2: LiteLLM team/key mapping
@@ -1112,7 +1112,7 @@ See **Section 7 (Repository Structure & Packaging)** for the full repository lay
   - 4 tiers: beginner / hobbyist / advanced-hobbyist / professional
   - Triggers specialization offer at advanced-hobbyist tier
   - Triggers "reclassify as work domain" suggestion at professional tier
-- [ ] **Implement pack signal scoring engine** (plan-classification.md §1.4 pack detection):
+- [ ] **Implement pack signal scoring engine** (plan-classification.md §1.3 pack detection):
   - Per-pack signal inventories (strong/medium/weak/exclusion)
   - Score computation with TF-IDF-style weighting
   - Exclusion signal handling

@@ -42,18 +42,17 @@
 
 1. [Classification Taxonomy Design](#1-classification-taxonomy-design)
    - [Core Design Principles](#core-design-principles)
-   - [1.1 The Problem with a Single Flat Taxonomy](#11-the-problem-with-a-single-flat-taxonomy)
-   - [1.2 Faceted Classification: The Architectural Foundation](#12-faceted-classification-the-architectural-foundation)
-   - [1.3 MVP Facet Schema (6 Dimensions)](#13-mvp-facet-schema-6-dimensions) -- context, domain, activity, project, artifact, phase
-   - [1.4 Domain-Specific Activity Taxonomies (Industry Packs)](#14-domain-specific-activity-taxonomies-industry-packs) -- engineering, legal, marketing, research, finance, personal
-   - [1.5 Automatic Project Detection](#15-automatic-project-detection)
-   - [1.6 Multi-Dimensional Tag Output Format](#16-multi-dimensional-tag-output-format)
-   - [1.7 The Combinatorial Power](#17-the-combinatorial-power-why-this-matters)
-   - [1.8 Taxonomy Evolution Strategy](#18-taxonomy-evolution-strategy)
-   - [1.9 Taxonomy Library: Starting Points by Setting](#19-taxonomy-library-starting-points-by-setting) -- solo dev, startup, enterprise, law firm, agency, university
-   - [1.10 Cross-Dimensional Intelligence](#110-cross-dimensional-intelligence)
-   - [1.11 In-Prompt Communication Layer](#111-in-prompt-communication-layer) -- `#tags` and `!commands` for power users
-   - [1.12 Academic Foundations](#112-academic-foundations-for-this-design)
+   - [1.1 Faceted Classification: The Architectural Foundation](#11-faceted-classification-the-architectural-foundation)
+   - [1.2 MVP Facet Schema (6 Dimensions)](#12-mvp-facet-schema-6-dimensions) -- context, domain, activity, project, artifact, phase
+   - [1.3 Domain-Specific Activity Taxonomies (Industry Packs)](#13-domain-specific-activity-taxonomies-industry-packs) -- engineering, legal, marketing, research, finance, personal
+   - [1.4 Automatic Project Detection](#14-automatic-project-detection)
+   - [1.5 Multi-Dimensional Tag Output Format](#15-multi-dimensional-tag-output-format)
+   - [1.6 The Combinatorial Power](#16-the-combinatorial-power-why-this-matters)
+   - [1.7 Taxonomy Evolution Strategy](#17-taxonomy-evolution-strategy)
+   - [1.8 Taxonomy Library: Starting Points by Setting](#18-taxonomy-library-starting-points-by-setting) -- solo dev, startup, enterprise, law firm, agency, university
+   - [1.9 Cross-Dimensional Intelligence](#19-cross-dimensional-intelligence)
+   - [1.10 In-Prompt Communication Layer](#110-in-prompt-communication-layer) -- `#tags` and `!commands` for power users
+   - [1.11 Academic Foundations](#111-academic-foundations-for-this-design)
 2. [Classification Engine: Research & Approach](#2-classification-engine-research--approach)
 3. [Classification Technique Cost Analysis](#3-classification-technique-cost-analysis)
 4. [Memory & Taxonomy System Research](#4-memory--taxonomy-system-research)
@@ -71,7 +70,7 @@ AI agent work spans software engineering at a FAANG, legal review at a law firm,
 
 **Principle 2: Faceted classification with 5-6 fixed facets is a reasonable starting point.**
 
-Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 6 facets: `context`, `domain`, `activity`, `project`, `artifact`, `phase`. Each is independently extracted, so a single API call produces 6 tags rather than one. Per §1.7, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
+Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 6 facets: `context`, `domain`, `activity`, `project`, `artifact`, `phase`. Each is independently extracted, so a single API call produces 6 tags rather than one. Per §1.6, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
 
 Facets are **fixed** in the MVP -- we do not let users add custom facets in v1. Custom facets (Workday Foundation Data Model style) are a post-MVP extension. Fixed facets keep the cognitive model simple, the classifier training surface bounded, and the analytics stable.
 
@@ -79,7 +78,7 @@ Facets are **fixed** in the MVP -- we do not let users add custom facets in v1. 
 
 The 10 universal activities (investigating, building, improving, verifying, researching, planning, communicating, configuring, reviewing, coordinating) work across every knowledge domain. But a law firm billing under UTBMS codes wants `legal:C200 Researching Law` not just `activity:researching`. A GitHub-using engineering team wants `engineering:commit-type:fix` not just `activity:investigating`.
 
-Domain packs (§1.4) are optional YAML overlays shipped with the tool (engineering, legal, marketing, research, finance) that add domain-specific sub-activities underneath the universal 10. Users install packs relevant to their org; the universal taxonomy continues to work on everyone's calls regardless of what packs are active.
+Domain packs (§1.3) are optional YAML overlays shipped with the tool (engineering, legal, marketing, research, finance) that add domain-specific sub-activities underneath the universal 10. Users install packs relevant to their org; the universal taxonomy continues to work on everyone's calls regardless of what packs are active.
 
 **Can packs enhance facets other than `activity`?** Architecturally yes -- the pack schema supports extensions to any facet. Practical examples:
 - **Artifact**: Legal pack could add `artifact:legal-document:contract`, `artifact:legal-document:brief`, `artifact:legal-document:motion` under a generic `legal-document` type. Engineering already benefits from the universal artifact values (source, test, config, infra).
@@ -91,15 +90,7 @@ For MVP, packs extend only `activity`. Extending to `artifact` and `phase` is po
 
 What follows details the facet schema, the ready-made domain packs, project and context detection, how the system outputs structured tags, how it produces combinatorial insights, how the taxonomy evolves over time, pre-configured profiles for different organizational settings, and the in-prompt communication layer users have for direct classifier control.
 
-### 1.1 The Problem with a Single Flat Taxonomy
-
-The original plan proposed 6 software engineering categories (debugging, feature-dev, refactoring, testing, research, devops). This fails on two fronts:
-
-**It only serves individual software engineers.** At a company like Google or Meta, AI agents are used by legal teams drafting patents, marketing teams writing campaigns, researchers analyzing data, PMs coordinating across teams, security teams auditing code, and hardware engineers running simulations. A "debugging vs. feature-dev" taxonomy is invisible to 80% of knowledge workers.
-
-**It collapses multiple independent dimensions into one.** A legal researcher debugging a contract analysis script is simultaneously doing: domain=Legal, activity=Debugging, project=Contract-Analyzer, artifact=Source, phase=Maintenance. Forcing this into a single "debugging" tag destroys the information that matters most to the CFO (Legal is spending $X on AI) and the engineering manager (debugging cost $Y this week).
-
-### 1.2 Faceted Classification: The Architectural Foundation
+### 1.1 Faceted Classification: The Architectural Foundation
 
 The solution comes from S.R. Ranganathan's Colon Classification (1933) -- the foundational theory of faceted classification. Instead of a single tree, classify each API call along **multiple independent dimensions (facets)** simultaneously.
 
@@ -132,7 +123,7 @@ Faceted classification requires **99% fewer definitions** and **99% fewer traini
 - Miller, "The Magical Number Seven" (1956) -- cognitive load limits
 - Cowan, "The Magical Number Four" (2001) -- revised working memory capacity
 
-### 1.3 MVP Facet Schema (6 Dimensions)
+### 1.2 MVP Facet Schema (6 Dimensions)
 
 Every API call is classified along all 6 dimensions simultaneously. Each facet has its own classifier, they run independently and in parallel.
 
@@ -203,11 +194,11 @@ This is the meta-facet. It runs first because it scopes the vocabulary of other 
 | Pronouns: "I/me/my/my wife/my kid" | personal | Strong (needs prompt reading) |
 | Pronouns: "we/our team/our customer" | business | Strong (needs prompt reading) |
 
-**Override via in-prompt command**: `!context personal` or `!context business` forces the classifier for the current call and session (see §1.11).
+**Override via in-prompt command**: `!context personal` or `!context business` forces the classifier for the current call and session (see §1.10).
 
 **Decision rule**: Sum weighted signals. If `personal_score > business_score + 0.3` -> `context=personal`. Otherwise -> `context=business` (the safer default for enterprise deployments). Ambiguous calls get tagged with lower confidence; users can correct via `!correct context=personal`.
 
-See §1.4 for the personal-context project vocabulary (the 10 default life areas used as project identifiers when context=personal) and the tree-path discovery mechanism for growing that vocabulary.
+See §1.3 for the personal-context project vocabulary (the 10 default life areas used as project identifiers when context=personal) and the tree-path discovery mechanism for growing that vocabulary.
 
 #### Facet 1: `domain` -- Organizational Function (WHAT PART OF THE BUSINESS)
 
@@ -283,7 +274,7 @@ This is the original "work type" classifier, now one facet among five. The value
 
 Automatic project detection -- not deferred to post-MVP. This is the facet that answers "where is the money going?" and every enterprise buyer needs it from day 1.
 
-**Personal-context values**: When `context=personal` (§1.3 Facet 0), `project` values are personal projects: default life areas (health, finances, etc.) or user-declared personal initiatives (marathon-training, home-renovation-2026). Same facet, different vocabulary. See §1.4 Personal Context subsection for the default values and discovery mechanism.
+**Personal-context values**: When `context=personal` (§1.2 Facet 0), `project` values are personal projects: default life areas (health, finances, etc.) or user-declared personal initiatives (marathon-training, home-renovation-2026). Same facet, different vocabulary. See §1.3 Personal Context subsection for the default values and discovery mechanism.
 
 **Detection hierarchy (most specific wins)**:
 
@@ -368,7 +359,7 @@ When no registry exists, projects are auto-detected from git repository names an
 - Multi-Task Learning with shared encoder -- [ruder.io/multi-task/](https://ruder.io/multi-task/)
 - Multi-Dimensional Classification (Neurocomputing 2023) -- cross-dimension correlation modeling
 
-### 1.4 Domain-Specific Activity Taxonomies (Industry Packs)
+### 1.3 Domain-Specific Activity Taxonomies (Industry Packs)
 
 The 10 universal activities cover the cross-domain view. But within specific domains, finer-grained activity taxonomies already exist and have been battle-tested in production for decades. Declawsified should ship with **pre-built taxonomy packs** that layer domain-specific subcategories onto the universal activities.
 
@@ -475,7 +466,7 @@ Based on Big 4 service categories and standard accounting workflow.
 
 #### Personal Context: Project Taxonomy and Discovery
 
-When `context=personal` (see §1.3 Facet 0), the `project` facet uses a different vocabulary than business. Instead of specific work initiatives (auth-service, patent-q3), personal projects are ongoing life areas (health, finances, relationships) plus any user-declared personal initiatives (marathon-training, home-renovation-2026, etc.).
+When `context=personal` (see §1.2 Facet 0), the `project` facet uses a different vocabulary than business. Instead of specific work initiatives (auth-service, patent-q3), personal projects are ongoing life areas (health, finances, relationships) plus any user-declared personal initiatives (marathon-training, home-renovation-2026, etc.).
 
 The same 6 facets apply across both contexts -- only the values change. There is no separate personal "area" facet; `project` handles it uniformly:
 
@@ -487,7 +478,7 @@ The same 6 facets apply across both contexts -- only the values change. There is
 | `artifact` | source, test, config, infra, ... | notes, docs, receipts, photos, ... |
 | `phase` | discovery, implementation, review, ... | (less structured in personal use) |
 
-This is not a pack -- there is no "personal pack" to activate. Context detection (§1.3) does the switch automatically. The content below describes **what personal project values look like** and **how they get discovered**.
+This is not a pack -- there is no "personal pack" to activate. Context detection (§1.2) does the switch automatically. The content below describes **what personal project values look like** and **how they get discovered**.
 
 ##### Default Personal Projects (10 Life Areas)
 
@@ -532,7 +523,7 @@ The `activity` facet uses the **same 10 universal activities** across both conte
 
 ##### Personal-Project Vocabulary Signals
 
-Detecting **which personal project** a call belongs to (e.g., `project=health` vs `project=finances`) uses per-project vocabulary inventories. These do not decide `context` (that's §1.3) -- they decide which default life-area project applies once context is already personal.
+Detecting **which personal project** a call belongs to (e.g., `project=health` vs `project=finances`) uses per-project vocabulary inventories. These do not decide `context` (that's §1.2) -- they decide which default life-area project applies once context is already personal.
 
 ```yaml
 personal-project-vocab:
@@ -587,7 +578,7 @@ No existing open taxonomy fits "things people ask AI about." Research confirms: 
 
 | Layer | Source | Size | Purpose |
 |-------|--------|------|---------|
-| **Root** | Declawsified core | ~15 nodes | Universal domains + personal areas (from §1.3/1.4) |
+| **Root** | Declawsified core | ~15 nodes | Universal domains + personal areas (from §1.2/1.3) |
 | **Mid-tree** | Declawsified curated + domain packs | ~500-1,000 nodes | Work activities + common personal sub-areas |
 | **Long tail (work)** | MAG Fields of Study (academic), custom work sub-activities | ~5,000 nodes | Deep specialization in work contexts |
 | **Long tail (personal)** | Curated from Curlie/Wikipedia categories | ~20,000-50,000 nodes | Coverage of common hobbies, interests, life activities |
@@ -1417,7 +1408,7 @@ Pack switching is **automatic and invisible** when driven by project detection. 
 
 ##### Explicit Pack Commands
 
-For power users and edge cases, the in-prompt command layer (§1.11) supports pack control:
+For power users and edge cases, the in-prompt command layer (§1.10) supports pack control:
 
 | Command | Effect |
 |---------|--------|
@@ -1585,7 +1576,7 @@ Sees engineering signals in code-heavy calls, legal signals in review calls
 - MAG Fields of Study: 700K fields, 5 levels, CC0
 - WildChat 1M (Allen AI, arXiv 2405.01470) -- real ChatGPT interactions, mineable for AI-use taxonomy
 
-### 1.5 Automatic Project Detection
+### 1.4 Automatic Project Detection
 
 Project detection is not optional and cannot wait for post-MVP. It is the #1 value proposition for any organization beyond a single developer.
 
@@ -1597,7 +1588,7 @@ def detect_project(call_metadata: dict, project_registry: dict) -> str:
     Returns project identifier. Runs as part of Facet 3 extraction.
     Priority order ensures most-specific signal wins.
     """
-    # Priority 0: In-prompt command (100% confidence, see §1.11)
+    # Priority 0: In-prompt command (100% confidence, see §1.10)
     #   User typed: !project auth-service   OR   #project:auth-service
     if prompt_command := extract_project_from_prompt(call_metadata.get("messages")):
         register_if_new(prompt_command, project_registry)
@@ -1639,7 +1630,7 @@ def detect_project(call_metadata: dict, project_registry: dict) -> str:
     return "unattributed"
 ```
 
-**Note on Priority 0**: User-typed tags and commands in the prompt text are the **highest-priority signal** because they represent direct, intentional user communication. The in-prompt layer (§1.11) gives users the lowest-friction way to override automatic detection when they know better than the signals.
+**Note on Priority 0**: User-typed tags and commands in the prompt text are the **highest-priority signal** because they represent direct, intentional user communication. The in-prompt layer (§1.10) gives users the lowest-friction way to override automatic detection when they know better than the signals.
 
 #### Session-Level Project Tracking
 
@@ -1661,7 +1652,7 @@ When no project registry exists (first-time users), the system operates in auto-
 3. Generate a report: "We detected 5 projects this week: auth-service (42% of spend), frontend-redesign (28%), docs-update (15%), infra-monitoring (10%), unattributed (5%)"
 4. User confirms or corrects, building the project registry over time
 
-### 1.6 Multi-Dimensional Tag Output Format
+### 1.5 Multi-Dimensional Tag Output Format
 
 Every classified call produces tags in a structured namespace:
 
@@ -1696,7 +1687,7 @@ auto:classifier:version:0.3.1     # classifier version for reproducibility
 
 This format is compatible with LiteLLM's `request_tags` (flat string list) while encoding structured multi-dimensional data. Consumers can filter on any facet dimension independently: "show me all `auto:domain:legal` spend" or "show me all `auto:activity:investigating` across all domains."
 
-### 1.7 The Combinatorial Power: Why This Matters
+### 1.6 The Combinatorial Power: Why This Matters
 
 With 5 facets, the system answers questions no single-taxonomy tool can:
 
@@ -1715,7 +1706,7 @@ With 5 facets, the system answers questions no single-taxonomy tool can:
 
 None of these questions are answerable with a flat 6-category engineering taxonomy. All are answerable with faceted classification from day 1.
 
-### 1.8 Taxonomy Evolution Strategy
+### 1.7 Taxonomy Evolution Strategy
 
 #### Within-Facet Evolution
 
@@ -1770,7 +1761,7 @@ Research shows algorithmically-constructed frequency-based hierarchies outperfor
 - TaxMorph -- [arxiv.org/html/2601.18375](https://arxiv.org/html/2601.18375) (EACL 2026) -- 4 refinement operations, +2.9 F1
 - OLLM ontology learning -- [github.com/andylolu2/ollm](https://github.com/andylolu2/ollm) (NeurIPS 2024)
 
-### 1.9 Taxonomy Library: Starting Points by Setting
+### 1.8 Taxonomy Library: Starting Points by Setting
 
 The system ships with pre-configured taxonomy profiles for different organizational contexts. Users select a profile at setup; it configures which domain packs are active and how facets are weighted.
 
@@ -1876,7 +1867,7 @@ project_detection: enabled (both contexts; different vocabularies)
 session_split: automatic                    # session can contain both contexts, classified per-call
 ```
 
-**Key behavior**: The context classifier (§1.3 Facet 0) runs first. Business calls get business-pack sub-activity classification and business-project vocabulary. Personal calls get the personal-project vocabulary (life-area defaults + tree-path discovery). Same user, same session, classified per-call.
+**Key behavior**: The context classifier (§1.2 Facet 0) runs first. Business calls get business-pack sub-activity classification and business-project vocabulary. Personal calls get the personal-project vocabulary (life-area defaults + tree-path discovery). Same user, same session, classified per-call.
 
 #### Profile: Student
 
@@ -1889,7 +1880,7 @@ project_detection: course codes (CS101, MATH240) + assignment names + life-area 
 custom_facets: [course, assignment, exam]
 ```
 
-### 1.10 Cross-Dimensional Intelligence
+### 1.9 Cross-Dimensional Intelligence
 
 The highest-value insights come from correlating across facets. These are not part of the classifier itself but emerge from the multi-faceted data:
 
@@ -1909,7 +1900,7 @@ The highest-value insights come from correlating across facets. These are not pa
 - "Legal teams that use AI for `researching` show 40% reduction in `reviewing` time"
 - This is the long-term moat: classification models that improve from cross-customer data
 
-### 1.11 In-Prompt Communication Layer
+### 1.10 In-Prompt Communication Layer
 
 The lowest-friction configuration method is the prompt itself. No config files, no env vars, no UI. Users should be able to declare project affinity, correct classifications, and pass metadata by typing naturally -- the same way Slack users embed `#channel` references or GitHub users type `/assign @user` in comments.
 
@@ -2306,7 +2297,7 @@ MVP ships with option 2; option 1 is post-MVP.
 - "I Sent the Same Prompt Injection to Ten LLMs. Three Complied" -- instruction-shaped token risk analysis
 - LLMON: LLM-native markup language -- [arxiv.org/html/2603.22519v1](https://arxiv.org/html/2603.22519v1) -- structured metadata in prompts
 
-### 1.12 Academic Foundations for This Design
+### 1.11 Academic Foundations for This Design
 
 | Source | Contribution to Design |
 |--------|----------------------|
@@ -2414,7 +2405,7 @@ Signal-only classification without reading prompt content. Runs independently pe
 
 **Domain facet signals**: Primarily from LiteLLM team/user metadata (high confidence) with content-based fallback.
 
-**Project facet signals**: See §1.5 detection algorithm.
+**Project facet signals**: See §1.4 detection algorithm.
 
 **Expected Tier 1 coverage**: 25-35% of `activity` calls resolved. 70-80% of `artifact` calls resolved. 90%+ of `project` calls resolved (when metadata or git signals present).
 
