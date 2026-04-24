@@ -60,7 +60,15 @@ class StateManager:
         result: ClassifyResult,
         cost_usd: float,
     ) -> None:
-        """Update the state for one session after a classified turn."""
+        """Update the state for one session after a classified turn.
+
+        Scalar facets (context, domain, activity) are flattened to a single
+        value (highest confidence). Array facets (project, tags) keep all
+        classifications above threshold as a list of {value, confidence}
+        dicts so the statusline can show multiple tags.
+        """
+        from declawsified_core.registry import FACETS
+
         data = self._read_all()
         sessions = data.setdefault("sessions", {})
 
@@ -68,26 +76,43 @@ class StateManager:
         prev_cost = existing.get("total_cost_usd", 0.0)
         prev_calls = existing.get("call_count", 0)
 
-        # Extract the winning classification per facet.
-        facets: dict[str, dict[str, Any]] = {}
+        # Group classifications by facet.
+        by_facet: dict[str, list] = {}
         for c in result.classifications:
-            # Keep highest-confidence per facet.
-            if c.facet not in facets or c.confidence > facets[c.facet].get("confidence", 0):
-                facets[c.facet] = {
-                    "value": c.value,
-                    "confidence": round(c.confidence, 3),
-                    "source": c.source,
-                }
+            by_facet.setdefault(c.facet, []).append(c)
 
         session_state: dict[str, Any] = {
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "total_cost_usd": round(prev_cost + cost_usd, 6),
             "call_count": prev_calls + 1,
         }
-        # Flatten facets to top-level keys for easy statusline access.
-        for facet_name, facet_data in facets.items():
-            session_state[facet_name] = facet_data["value"]
-            session_state[f"{facet_name}_confidence"] = facet_data["confidence"]
+
+        for facet_name, classifications in by_facet.items():
+            cfg = FACETS.get(facet_name)
+            arity = cfg.arity if cfg else "scalar"
+
+            # Filter "unknown" — defaults emitted when a classifier ran but
+            # found no signal. They're noise in reports/UI.
+            classifications = [
+                c for c in classifications if c.value != "unknown"
+            ]
+            if not classifications:
+                continue
+
+            if arity == "array":
+                # Sort by confidence desc, keep all values + confidences.
+                sorted_cs = sorted(classifications, key=lambda c: -c.confidence)
+                session_state[facet_name] = [
+                    {"value": c.value, "confidence": round(c.confidence, 3)}
+                    for c in sorted_cs
+                ]
+            else:
+                # Scalar: keep the highest-confidence verdict.
+                winner = max(classifications, key=lambda c: c.confidence)
+                session_state[facet_name] = winner.value
+                session_state[f"{facet_name}_confidence"] = round(
+                    winner.confidence, 3
+                )
 
         sessions[session_id] = session_state
         self._write_all(data)

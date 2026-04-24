@@ -67,13 +67,16 @@ class ContextRulesClassifier:
                 )
             ]
 
-        # Plan §1.2: "business" is the safer default for enterprise deployments.
+        # No signal — emit "unknown" rather than guessing business/personal.
+        # Reports filter "unknown" out (see status-classification.md). The
+        # previous "business default" produced false-positive business
+        # tagging on personal-account export data (every msg = "business").
         return [
             Classification(
                 facet=self.facet,
-                value="business",
-                confidence=0.60,
-                source="default-business",
+                value="unknown",
+                confidence=0.50,
+                source="default-unknown",
                 classifier_name=self.name,
             )
         ]

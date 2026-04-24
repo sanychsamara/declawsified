@@ -69,13 +69,15 @@ class ActivityRulesClassifier:
                 )
             ]
 
-        # Weak default: most agent work looks like investigating when signals are absent.
+        # No signal — emit "unknown" so callers can distinguish "classifier
+        # ran and found nothing" from "facet was missing entirely". Reports
+        # filter "unknown" out — see status-classification.md.
         return [
             Classification(
                 facet=self.facet,
-                value="investigating",
-                confidence=0.55,
-                source="default-investigating",
+                value="unknown",
+                confidence=0.50,
+                source="default-unknown",
                 classifier_name=self.name,
             )
         ]

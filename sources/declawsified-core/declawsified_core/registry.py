@@ -35,19 +35,24 @@ from declawsified_core.facets.tags import EmbeddingTagger, KeywordTagger, Semant
 
 @dataclass(frozen=True)
 class FacetConfig:
-    """Per-facet configuration consumed by the aggregator."""
+    """Per-facet configuration consumed by the aggregator.
+
+    `default` is the value used when no classifier produces a verdict above
+    `min_confidence`. By convention, `"unknown"` means "classifier saw no
+    decision-grade signal" and is filtered from reports.
+    """
 
     arity: Literal["scalar", "array"]
     min_confidence: float = 0.5
-    default: str | list[str] = "unattributed"
+    default: str | list[str] = "unknown"
     top_n: int = 3  # only meaningful when arity == "array"
 
 
 FACETS: dict[str, FacetConfig] = {
-    "context":  FacetConfig(arity="scalar", default="business"),
-    "domain":   FacetConfig(arity="scalar"),
-    "activity": FacetConfig(arity="scalar"),
-    "project":  FacetConfig(arity="array", default=["unattributed"]),
+    "context":  FacetConfig(arity="scalar", default="unknown"),
+    "domain":   FacetConfig(arity="scalar", default="unknown"),
+    "activity": FacetConfig(arity="scalar", default="unknown"),
+    "project":  FacetConfig(arity="array", default=["unknown"]),
     "tags":     FacetConfig(arity="array", min_confidence=0.4, default=[], top_n=5),
 }
 

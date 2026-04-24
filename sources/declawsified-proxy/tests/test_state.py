@@ -47,7 +47,8 @@ def test_update_creates_state_file(tmp_path: Path) -> None:
     session = data["sessions"]["sess-1"]
     assert session["activity"] == "investigating"
     assert session["domain"] == "engineering"
-    assert session["project"] == "auth-service"
+    # Array facets are stored as lists of {value, confidence}.
+    assert session["project"] == [{"value": "auth-service", "confidence": 0.95}]
     assert session["total_cost_usd"] == 0.003
     assert session["call_count"] == 1
 

@@ -51,14 +51,16 @@ class DomainKeywordsClassifier:
         scored.sort(key=lambda pair: pair[1], reverse=True)
 
         if not scored:
-            # Below threshold — aggregator will drop it and the facet will be
-            # omitted from the final result.
+            # No keyword hits — emit "unknown" so callers can distinguish
+            # "classifier ran" from "facet missing". Reports filter "unknown"
+            # out. (Confidence below default min_confidence so the aggregator
+            # drops it from the standard view anyway.)
             return [
                 Classification(
                     facet=self.facet,
-                    value="unattributed",
+                    value="unknown",
                     confidence=0.40,
-                    source="no-keyword-hits",
+                    source="default-unknown",
                     classifier_name=self.name,
                 )
             ]

@@ -7,17 +7,21 @@ Starts the transparent classification proxy on localhost.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import sys
 
 from aiohttp import web
 
 from declawsified_core import (
+    EmbeddingTagger,
     InMemoryCallHistoryStore,
     InMemorySessionStore,
+    build_tag_index,
     default_classifiers,
     session_continuity_classifiers,
 )
+from declawsified_core.data.taxonomies import HYBRID_V1_PATH, HYBRID_V2_PATH
 
 from declawsified_proxy.config import ProxyConfig
 from declawsified_proxy.server import ProxyServer
@@ -40,6 +44,10 @@ def _parse_args() -> argparse.Namespace:
         "--log-level", type=str, default=None,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Log level (default: INFO)",
+    )
+    parser.add_argument(
+        "--taxonomy", type=str, default="v2", choices=["v1", "v2"],
+        help="Taxonomy version for EmbeddingTagger (default: v2)",
     )
     return parser.parse_args()
 
@@ -96,10 +104,40 @@ def main() -> int:
         "Proxy logs writing to %s", log_file,
     )
 
-    # Build classifier list: all fast rule-based classifiers + session
-    # continuity. ProjectTreePathClassifier is inert by default (no pipeline
-    # injected), so it's safe to include — it returns [] immediately.
-    classifiers = default_classifiers() + session_continuity_classifiers()
+    # Try to enable EmbeddingTagger with a real sentence-transformer.
+    # If sentence-transformers is missing, EmbeddingTagger stays inert and
+    # only KeywordTagger fires — proxy still works, just less precise tags.
+    embedder = None
+    tag_index = None
+    taxonomy_path = HYBRID_V2_PATH if args.taxonomy == "v2" else HYBRID_V1_PATH
+    try:
+        from declawsified_core.taxonomy import SentenceTransformerEmbedder
+        embedder = SentenceTransformerEmbedder()
+        print(
+            f"Loading tag index ({embedder.dim}-dim, sentence-transformers, "
+            f"taxonomy {args.taxonomy})..."
+        )
+        tag_index = asyncio.run(build_tag_index(taxonomy_path, embedder))
+        print(f"  Tag index ready: {tag_index.size} taxonomy nodes")
+    except ImportError:
+        print("sentence-transformers not installed — EmbeddingTagger inert.")
+        print("  Install with: pip install -e '.[ml]'")
+    except Exception as exc:
+        logging.exception("Failed to build tag index: %r", exc)
+        print(f"  Tag index build failed: {exc!r} — EmbeddingTagger inert")
+        embedder = None
+        tag_index = None
+
+    # Build classifier list. EmbeddingTagger and SemanticTagClassifier are
+    # inert by default (no index/pipeline injected); we replace the inert
+    # EmbeddingTagger with a real one when sentence-transformers is available.
+    classifiers = []
+    for c in default_classifiers():
+        if c.name == "embedding_tagger_v1" and tag_index is not None:
+            classifiers.append(EmbeddingTagger(tag_index, embedder))
+        else:
+            classifiers.append(c)
+    classifiers.extend(session_continuity_classifiers())
 
     session_store = InMemorySessionStore()
     history = InMemoryCallHistoryStore()
@@ -107,11 +145,16 @@ def main() -> int:
     server = ProxyServer(config, classifiers, session_store, history)
     app = server.create_app()
 
+    embedding_status = (
+        f"on ({tag_index.size} nodes)" if tag_index else "off (inert)"
+    )
+    print()
     print(f"Declawsified proxy starting on {config.host}:{config.port}")
-    print(f"  Upstream: {config.upstream_url}")
-    print(f"  State file: {config.state_file}")
-    print(f"  Log file:   {log_file}")
-    print(f"  Classifiers: {len(classifiers)}")
+    print(f"  Upstream:        {config.upstream_url}")
+    print(f"  State file:      {config.state_file}")
+    print(f"  Log file:        {log_file}")
+    print(f"  Classifiers:     {len(classifiers)}")
+    print(f"  EmbeddingTagger: {embedding_status}")
     print()
     print("Configure Claude Code:")
     print(f'  ANTHROPIC_BASE_URL=http://{config.host}:{config.port}')

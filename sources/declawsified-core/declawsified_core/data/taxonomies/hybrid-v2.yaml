@@ -1,0 +1,411 @@
+version: 2.0.0
+
+# hybrid-v2 — simplified taxonomy, max depth 3, ≤500 nodes.
+#
+# Goals:
+#   - Replace v1's deep wrapper layers (fun-hobbies/sports-watching/...) with
+#     direct depth-2 categories (sports/, entertainment/, etc.)
+#   - Drop relationship suffixes (basketball-fan → basketball)
+#   - Every leaf at depth 3 — no exceptions
+#   - Empirically validated against the v04 ChatGPT report (100 conversations)
+#
+# Description style: 1-2 sentences, comma-separated subtopic list. Used as
+# the embedding text for the EmbeddingTagger. Keep concise but distinguishing.
+#
+# See docs/status-classification.md for v1→v2 transition notes.
+
+root:
+  personal:
+    description: >
+      Personal life: hobbies, sports, entertainment, family, health, home,
+      growth, learning, finances, career planning, admin. Not paid work.
+    children:
+
+      health:
+        description: >
+          Physical and mental wellbeing: fitness, nutrition, sleep, medical
+          care, chronic conditions, anxiety, depression, therapy, mindfulness.
+        children:
+          fitness:        {description: "Exercise, workouts, strength training, cardio, conditioning, athletic performance."}
+          nutrition:      {description: "Diet, meal planning, macros, supplements, healthy eating, food choices."}
+          sleep:          {description: "Sleep quality, insomnia, sleep hygiene, dreams, circadian rhythm."}
+          medical:        {description: "Doctor visits, symptoms, prescriptions, diagnoses, chronic conditions, treatments."}
+          mental-health:  {description: "Anxiety, depression, mood, psychiatric medication, mental wellness."}
+          mindfulness:    {description: "Meditation, breathwork, presence, mindful living, stress reduction."}
+          therapy:        {description: "Therapy sessions, counseling, trauma recovery, emotional processing."}
+          stress:         {description: "Stress management, burnout, coping strategies, overwhelm, recovery."}
+          weight:         {description: "Weight loss, weight gain, body composition, dieting, fitness goals."}
+          womens-health:  {description: "Reproductive health, pregnancy, menstruation, menopause, gynecology."}
+          mens-health:    {description: "Prostate, testosterone, male-specific medical concerns."}
+          chronic-illness: {description: "Living with chronic conditions, autoimmune, pain management, disability."}
+
+      sports:
+        description: >
+          Sports as fan or participant: basketball, soccer, football, baseball,
+          hockey, fantasy leagues, individual sports like running and cycling.
+        children:
+          basketball:        {description: "Basketball, NBA, college basketball, players, teams, games, playoffs, fantasy basketball."}
+          soccer:            {description: "Soccer / football: leagues, players, teams, transfers, World Cup, fantasy soccer."}
+          american-football: {description: "NFL, college football, players, teams, fantasy football, playoffs."}
+          baseball:          {description: "MLB, baseball players, teams, fantasy baseball, World Series."}
+          hockey:            {description: "NHL, hockey players, teams, Stanley Cup, fantasy hockey."}
+          tennis:            {description: "Tennis players, tournaments, Grand Slams, ATP, WTA."}
+          golf:              {description: "Golf, PGA, majors, golf instruction, equipment."}
+          motorsports:       {description: "Formula 1, NASCAR, racing, drivers, teams."}
+          mma:               {description: "UFC, MMA, boxing, combat sports, fighters, fights."}
+          olympics:          {description: "Olympic Games, athletes, events, medals, competitions."}
+          running:           {description: "Running, marathon training, jogging, race prep, running form."}
+          cycling:           {description: "Road cycling, mountain biking, bike maintenance, races."}
+          climbing:          {description: "Rock climbing, bouldering, mountaineering, gear, routes."}
+          swimming:          {description: "Swimming, pool workouts, open water, technique, swim training."}
+          yoga:              {description: "Yoga practice, poses, styles, flexibility, vinyasa, pilates."}
+          weightlifting:     {description: "Strength training, powerlifting, bodybuilding, lifts, programs."}
+          martial-arts:      {description: "Karate, judo, BJJ, taekwondo, training, belt progression."}
+          watersports:       {description: "Surfing, kayaking, paddleboarding, sailing, water activities."}
+          winter-sports:     {description: "Skiing, snowboarding, ice skating, winter activities."}
+
+      entertainment:
+        description: >
+          Movies, TV, anime, comics, music, podcasts, books, video games,
+          tabletop games, comedy. Consumption, not creation.
+        children:
+          movies:        {description: "Movies, films, cinema, reviews, recommendations, directors, actors."}
+          tv-shows:      {description: "TV series, episodes, streaming shows, recaps, recommendations."}
+          anime:         {description: "Anime series, manga, Japanese animation, characters, recommendations."}
+          comics:        {description: "Comic books, graphic novels, superheroes, web comics."}
+          video-games:   {description: "Video games, gaming, console, PC, mobile games, gameplay, walkthroughs."}
+          board-games:   {description: "Board games, card games, strategy games, recommendations, rules."}
+          ttrpg:         {description: "Tabletop RPGs, D&D, character creation, campaigns, world-building."}
+          music:         {description: "Music listening, artists, albums, genres, playlists, recommendations."}
+          podcasts:      {description: "Podcasts, podcast recommendations, episodes, hosts."}
+          books:         {description: "Reading fiction and nonfiction, book recommendations, authors, reviews."}
+          comedy:        {description: "Stand-up, comedy shows, jokes, humor."}
+          theater:       {description: "Theater, plays, musicals, Broadway, performance arts."}
+
+      hobbies:
+        description: >
+          Active hobbies: cooking, baking, photography, crafts, creative
+          writing, music-making, collecting, DIY projects.
+        children:
+          cooking:           {description: "Recipes, meal prep, cooking techniques, cuisines, ingredients."}
+          baking:            {description: "Baking, pastries, bread, cakes, desserts, sweet treats."}
+          photography:       {description: "Photography, cameras, photo editing, composition, photo projects."}
+          crafts:            {description: "Knitting, sewing, woodworking, ceramics, handmade crafts."}
+          drawing-painting:  {description: "Drawing, sketching, painting, illustration, visual art practice."}
+          creative-writing:  {description: "Fiction writing, poetry, short stories, character development, world-building."}
+          music-making:      {description: "Playing instruments, songwriting, music production, recording."}
+          collecting:        {description: "Collecting hobbies: cards, coins, vintage items, memorabilia."}
+          diy:               {description: "DIY projects, hands-on building, repair projects, makerspace."}
+          gardening-hobby:   {description: "Gardening as hobby: plants, flowers, vegetables, propagation."}
+
+      travel:
+        description: >
+          Travel planning and execution: destinations, itineraries, flights,
+          hotels, packing, local experiences.
+        children:
+          destinations:   {description: "Picking where to go, country and city research, travel inspiration."}
+          itineraries:    {description: "Trip planning, day-by-day plans, activity scheduling."}
+          flights:        {description: "Booking flights, airline rewards, layovers, flight comparison."}
+          accommodations: {description: "Hotels, Airbnb, hostels, vacation rentals, lodging choices."}
+          packing:        {description: "Packing lists, luggage, travel gear, what to bring."}
+          food-travel:    {description: "Food while traveling, restaurant picks, local cuisine."}
+          road-trips:     {description: "Road trips, route planning, driving across regions."}
+          family-travel:  {description: "Traveling with kids, family-friendly destinations and activities."}
+          solo-travel:    {description: "Traveling alone, solo trip safety and planning."}
+          adventure:      {description: "Adventure travel, hiking trips, expeditions, outdoor exploration."}
+          travel-rewards: {description: "Points, miles, credit card travel benefits, status."}
+
+      home:
+        description: >
+          Home ownership and maintenance: repairs, decoration, gardening,
+          cleaning, pets, organization, shopping for the home.
+        children:
+          maintenance:    {description: "Routine home maintenance: HVAC, plumbing, electrical, roof, inspections."}
+          repairs:        {description: "Fixing things: appliances, furniture, leaks, broken items."}
+          renovation:     {description: "Home renovation, remodeling, additions, contractor management."}
+          decor:          {description: "Interior decoration, paint, furniture, layout, style."}
+          gardening:      {description: "Yard work, landscaping, lawn care, outdoor plants and flowers."}
+          cleaning:       {description: "Cleaning routines, products, deep cleaning, decluttering."}
+          organization:   {description: "Home organization, storage, closet systems, KonMari."}
+          appliances:     {description: "Appliance buying, comparison, troubleshooting, replacement."}
+          pets:           {description: "Pet care: dogs, cats, training, food, vet visits, behavior."}
+          shopping-home:  {description: "Shopping for the home: furniture, decor, household items."}
+          smart-home:     {description: "Smart home, automation, IoT devices, home network."}
+
+      finances:
+        description: >
+          Personal finance: banking, budgeting, taxes, investing, debt,
+          insurance, major purchases, retirement.
+        children:
+          banking:         {description: "Bank accounts, debit, online banking, account management."}
+          budgeting:       {description: "Personal budget, expense tracking, money management."}
+          taxes:           {description: "Personal taxes, filing, deductions, tax planning."}
+          investing:       {description: "Stocks, ETFs, mutual funds, brokerage, investment strategy."}
+          retirement:      {description: "Retirement planning, 401k, IRA, pension, Social Security."}
+          debt:            {description: "Debt management, payoff strategy, loans, credit cards."}
+          credit:          {description: "Credit score, credit cards, building credit, credit reports."}
+          insurance:       {description: "Personal insurance: health, auto, life, home, disability."}
+          major-purchases: {description: "Big-ticket buying decisions: car, house, appliance comparison."}
+          real-estate:     {description: "Home buying, selling, mortgages, real estate as investment."}
+          crypto:          {description: "Cryptocurrency, blockchain, NFTs, crypto trading."}
+          estate:          {description: "Estate planning, wills, trusts, inheritance."}
+          financial-aid:   {description: "Student loans, grants, scholarships, FAFSA."}
+
+      family:
+        description: >
+          Family and relationships: parenting, romantic partners, dating,
+          friendships, communication, conflict, family events.
+        children:
+          parenting:        {description: "Parenting: discipline, milestones, child development, parenting styles."}
+          early-childhood:  {description: "Newborn, infant, toddler care, sleep training, feeding."}
+          school-age-kids:  {description: "School-age children, school issues, activities, social development."}
+          teens:            {description: "Teenage parenting, adolescence, teen behavior, communication."}
+          romantic:         {description: "Romantic partner relationship: intimacy, partnership, marriage."}
+          dating:           {description: "Dating apps, dates, relationship building, breakups."}
+          friends:          {description: "Friendships, making friends, maintaining connections, social circles."}
+          family-of-origin: {description: "Parents, siblings, extended family, family-of-origin dynamics."}
+          conflict:         {description: "Conflict resolution, arguments, hard conversations, repair."}
+          communication:    {description: "Interpersonal communication, expressing needs, listening, digital communication."}
+          weddings:         {description: "Wedding planning, ceremonies, anniversaries, marriage milestones."}
+          divorce:          {description: "Divorce, separation, co-parenting, custody."}
+
+      learning:
+        description: >
+          Learning and self-education: courses, languages, reading,
+          academic study, skill practice, programming as hobby.
+        children:
+          courses:           {description: "Online courses, MOOCs, course recommendations, course progress."}
+          languages:         {description: "Language learning, vocabulary, grammar, fluency practice."}
+          reading-study:     {description: "Reading for learning: textbooks, research papers, study habits."}
+          skill-practice:    {description: "Deliberate practice, skill development, feedback loops."}
+          academic-self:     {description: "Self-directed academic study, lecture videos, online lectures."}
+          coding-personal:   {description: "Programming as hobby or learning, side projects, tutorials."}
+          note-taking:       {description: "Note-taking systems, Zettelkasten, knowledge management."}
+          memorization:      {description: "Memory techniques, spaced repetition, flashcards, recall."}
+          tutoring:          {description: "Getting tutored, tutoring others, finding tutors."}
+          test-prep:         {description: "Test preparation: SAT, GRE, professional certifications, exams."}
+
+      career:
+        description: >
+          Personal career navigation: job search, interviews, resume,
+          networking, side hustle, freelancing, professional development.
+        children:
+          job-search:       {description: "Job hunting, applications, job listings, opportunities."}
+          interview:        {description: "Interview prep, behavioral questions, technical interviews, salary negotiation."}
+          resume:           {description: "Resume writing, CV, cover letters, portfolio."}
+          networking:       {description: "Professional networking, LinkedIn, informational interviews, contacts."}
+          career-change:    {description: "Career transitions, pivoting, new field exploration."}
+          side-hustle:      {description: "Side projects, side businesses, secondary income."}
+          freelancing:      {description: "Freelancing, contract work, client management, freelance pricing."}
+          remote-work:      {description: "Remote work, work-from-home, async, distributed teams."}
+          professional-dev: {description: "Professional development, certifications, mentorship, growth."}
+          entrepreneurship: {description: "Starting a business, founding, startup ideation."}
+
+      growth:
+        description: >
+          Personal growth and self-improvement: habits, journaling,
+          productivity, spirituality, philosophy, self-help, meditation.
+        children:
+          habits:        {description: "Habit formation, habit tracking, building routines."}
+          journaling:    {description: "Journaling practice, prompts, reflection, expressive writing."}
+          productivity:  {description: "Productivity systems, GTD, time management, focus."}
+          goals:         {description: "Goal setting, goal achievement, planning, OKRs for self."}
+          spirituality:  {description: "Faith practice, prayer, religious community, spiritual exploration."}
+          philosophy:    {description: "Philosophy, ethics, metaphysics, philosophical inquiry."}
+          self-help:     {description: "Self-help books, advice, life advice, personal development."}
+          meditation:    {description: "Meditation practice, types, instruction, guided meditations."}
+          mental-models: {description: "Mental models, frameworks for thinking, decision-making."}
+          values:        {description: "Values clarification, life purpose, what matters."}
+          life-design:   {description: "Designing your life, lifestyle changes, big life decisions."}
+
+      admin:
+        description: >
+          Personal administration: bills, documents, government, scheduling,
+          subscriptions, mail, identity.
+        children:
+          bills:         {description: "Paying bills, recurring payments, utilities."}
+          documents:     {description: "Personal documents: ID, passports, certificates, vital records."}
+          government:    {description: "Government services, forms, DMV, voting, civic forms."}
+          scheduling:    {description: "Personal calendar, appointments, scheduling tools."}
+          subscriptions: {description: "Managing subscriptions, services, recurring memberships."}
+          mail:          {description: "Mail, packages, shipping, postal services."}
+          identity:      {description: "Identity protection, password management, account security."}
+          legal-personal: {description: "Personal legal matters: contracts, leases, disputes."}
+          insurance-admin: {description: "Insurance claims, policy management, coverage questions."}
+
+      community:
+        description: >
+          Civic and community engagement: volunteering, activism, donations,
+          mutual aid, local involvement.
+        children:
+          volunteering:    {description: "Volunteering, community service, finding volunteer opportunities."}
+          activism:        {description: "Activism, organizing, social causes, political engagement."}
+          donations:       {description: "Charitable giving, donations, philanthropy."}
+          civic:           {description: "Civic engagement, voting, local government, community meetings."}
+          mutual-aid:      {description: "Mutual aid, neighborhood help, community support."}
+          religious-community: {description: "Religious community involvement, congregational life."}
+
+  work:
+    description: >
+      Work and professional activities: engineering, design, product,
+      research, marketing, sales, finance, legal, HR, operations, support.
+    children:
+
+      engineering:
+        description: >
+          Software engineering: backend, frontend, mobile, devops, security,
+          databases, ML, programming languages, architecture, testing.
+        children:
+          backend:           {description: "Backend services, APIs, microservices, server-side logic."}
+          frontend:          {description: "Frontend development, web UI, JavaScript, browser apps."}
+          mobile:            {description: "Mobile development: iOS, Android, React Native, cross-platform."}
+          devops:            {description: "DevOps, CI/CD, infrastructure as code, deployment pipelines."}
+          cloud:             {description: "Cloud platforms: AWS, GCP, Azure, cloud architecture."}
+          security:          {description: "Application security, infosec, vulnerabilities, security reviews."}
+          databases:         {description: "Database design, SQL, NoSQL, query optimization, schemas."}
+          machine-learning:  {description: "ML models, training, deployment, ML engineering."}
+          data-engineering:  {description: "Data pipelines, ETL, warehouses, data lakes, big data."}
+          architecture:      {description: "System architecture, distributed systems, scalability, design patterns."}
+          programming-langs: {description: "Programming languages: Python, Go, Rust, TypeScript, etc."}
+          testing:           {description: "Software testing, unit tests, integration tests, QA."}
+          performance:       {description: "Performance optimization, profiling, benchmarking, latency."}
+          code-review:       {description: "Code review, PR feedback, code quality."}
+          debugging:         {description: "Debugging, troubleshooting, error tracing, log analysis."}
+          refactoring:       {description: "Refactoring, code cleanup, technical debt."}
+          documentation-eng: {description: "Engineering documentation: design docs, API docs, READMEs."}
+
+      design:
+        description: >
+          Design work: UI, UX, visual design, brand, prototyping, design
+          systems, illustration.
+        children:
+          ui:               {description: "UI design, interface design, layouts, components."}
+          ux:               {description: "User experience, flows, IA, interaction design."}
+          visual:           {description: "Visual design, color, typography, composition."}
+          illustration:     {description: "Illustration, custom artwork, scene composition, character design."}
+          brand-design:     {description: "Brand identity, logos, visual identity systems."}
+          prototyping:      {description: "Prototyping: Figma, interactive mockups, click-throughs."}
+          design-systems:   {description: "Design systems, component libraries, tokens."}
+          icon-design:      {description: "Icon design, iconography, glyph systems."}
+          motion:           {description: "Motion design, animation, micro-interactions."}
+          typography:       {description: "Typography, font selection, type design."}
+
+      product:
+        description: >
+          Product management: roadmap, PRDs, analytics, growth, pricing,
+          user research, product strategy.
+        children:
+          prd:              {description: "Product requirements docs, specs, feature definitions."}
+          roadmap:          {description: "Product roadmap, prioritization, planning."}
+          analytics:        {description: "Product analytics, metrics, dashboards, KPIs."}
+          growth:           {description: "Growth strategies, funnel optimization, retention."}
+          pricing:          {description: "Pricing strategy, packaging, monetization."}
+          user-research:    {description: "User interviews, usability testing, customer insights."}
+          experimentation:  {description: "A/B testing, experiments, hypothesis validation."}
+          discovery:        {description: "Product discovery, opportunity exploration, user problems."}
+
+      research:
+        description: >
+          Research work: academic, scientific, market, competitive, UX,
+          policy, data analysis.
+        children:
+          academic:        {description: "Academic research, papers, peer review, scholarly work."}
+          scientific:      {description: "Scientific research, experiments, hypothesis testing."}
+          market-research: {description: "Market research, customer surveys, market sizing."}
+          competitive:     {description: "Competitive intelligence, competitor analysis."}
+          ux-research:     {description: "UX research, user studies, behavioral research."}
+          data-analysis:   {description: "Data analysis, statistical analysis, interpretation."}
+          policy:          {description: "Policy research, regulatory analysis."}
+          literature-review: {description: "Literature reviews, surveys of prior work."}
+
+      marketing:
+        description: >
+          Marketing: brand, campaigns, content, email, events, growth, SEO,
+          social media, partnerships.
+        children:
+          brand:        {description: "Brand marketing, positioning, brand strategy."}
+          campaigns:    {description: "Marketing campaigns, creative development, campaign strategy."}
+          content:      {description: "Content marketing, blog posts, content strategy."}
+          email:        {description: "Email marketing, newsletters, email automation."}
+          events:       {description: "Event marketing, conferences, trade shows."}
+          growth-mktg:  {description: "Growth marketing, paid acquisition, conversion optimization."}
+          seo:          {description: "Search engine optimization, ranking, organic search."}
+          social-media: {description: "Social media marketing, content creation, community."}
+          partnerships: {description: "Partnership marketing, co-marketing, business development."}
+          paid-media:   {description: "Paid advertising, ad buying, programmatic, performance ads."}
+          pr:           {description: "Public relations, media outreach, press coverage."}
+
+      sales:
+        description: >
+          Sales: prospecting, demos, pipeline, negotiation, account
+          management, customer success.
+        children:
+          prospecting:        {description: "Prospecting, lead generation, outbound outreach."}
+          demos:              {description: "Sales demos, product demonstrations, pitches."}
+          pipeline:           {description: "Pipeline management, deal stages, forecasting."}
+          negotiation:        {description: "Sales negotiation, deal terms, competitive deals."}
+          account-management: {description: "Account management, expansion, renewals."}
+          customer-success:   {description: "Customer success, onboarding, retention, churn prevention."}
+          enablement:         {description: "Sales enablement, training, sales tools."}
+
+      support:
+        description: >
+          Customer support: tickets, documentation, troubleshooting,
+          training materials.
+        children:
+          customer-support: {description: "Customer support tickets, user issues, resolutions."}
+          documentation:    {description: "User documentation, help articles, knowledge base."}
+          troubleshooting:  {description: "Technical troubleshooting, debugging user issues."}
+          training:         {description: "User training, onboarding materials, tutorials."}
+
+      finance:
+        description: >
+          Corporate finance: accounting, FP&A, treasury, investor relations,
+          procurement, audit, tax.
+        children:
+          accounting:    {description: "Accounting, bookkeeping, financial statements, GAAP."}
+          fp-and-a:      {description: "Financial planning and analysis, budgeting, forecasting."}
+          treasury:      {description: "Cash management, treasury operations, liquidity."}
+          investor-rel:  {description: "Investor relations, fundraising, board reporting."}
+          procurement:   {description: "Procurement, vendor selection, purchasing."}
+          audit:         {description: "Audit, internal controls, compliance review."}
+          corp-tax:      {description: "Corporate tax, tax strategy, tax filings."}
+
+      legal:
+        description: >
+          Legal work: contracts, compliance, IP, employment law, litigation,
+          privacy.
+        children:
+          contracts:       {description: "Contract drafting, review, negotiation."}
+          compliance:      {description: "Regulatory compliance, policy, audits."}
+          ip:              {description: "Intellectual property: patents, trademarks, copyright."}
+          employment-law:  {description: "Employment law, HR legal matters, workplace policy."}
+          litigation:      {description: "Litigation, lawsuits, dispute resolution."}
+          privacy:         {description: "Privacy law: GDPR, CCPA, data protection."}
+          corporate-law:   {description: "Corporate law: governance, M&A, securities."}
+
+      hr:
+        description: >
+          HR: recruiting, onboarding, performance, compensation, employee
+          relations, learning and development, culture.
+        children:
+          recruiting:    {description: "Recruiting, sourcing candidates, hiring pipelines."}
+          onboarding:    {description: "Employee onboarding, new-hire programs."}
+          performance:   {description: "Performance management, reviews, feedback, calibrations."}
+          compensation:  {description: "Compensation, salary bands, equity, benefits design."}
+          employee-rel:  {description: "Employee relations, conflict, internal investigations."}
+          learning-dev:  {description: "Learning and development, training programs, upskilling."}
+          culture:       {description: "Workplace culture, engagement, values."}
+          dei:           {description: "Diversity, equity, inclusion, belonging programs."}
+
+      operations:
+        description: >
+          Business operations: facilities, project management, vendor
+          management, business continuity, program management.
+        children:
+          project-management:  {description: "Project management, timelines, deliverables."}
+          program-management:  {description: "Program management, multi-project coordination."}
+          facilities:          {description: "Facilities, office management, real estate operations."}
+          vendor-management:   {description: "Vendor management, vendor relationships, SLAs."}
+          business-continuity: {description: "Business continuity planning, disaster recovery."}
+          process-improvement: {description: "Process improvement, operational efficiency."}

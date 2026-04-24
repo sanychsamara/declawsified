@@ -6,6 +6,8 @@
 - [`plan-classification.md`](./plan-classification.md) -- classification taxonomy, classifier engine, cost model, and memory/taxonomy research. If you care about **what** the classifier does and **why**, read that. This document covers **how** we deliver it.
 - [`plan-domain-packs.md`](./plan-domain-packs.md) -- industry-specific activity sub-taxonomies (engineering, legal, marketing, research, finance, personal/education) and pack auto-detection.
 
+> **Working note: commit cadence.** Commit pending work periodically — at minimum after every meaningful chunk lands (new package, milestone in an execution step, doc rewrite). The 2026-04-22 commit `5722b6f` accumulated 73 files / 13k lines because we deferred — that's painful to review and dangerous if anything got lost. Aim for commits under ~500 lines; push the same day. Don't let the next commit grow that large.
+
 ---
 
 ## Table of Contents

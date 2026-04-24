@@ -216,9 +216,10 @@ async def test_triggering_call_result_not_mutated_by_backprop() -> None:
         history,
     )
     activity1 = _facet_value(result1, "activity")
+    # No git/tool signals on c1 — classifier emits the "unknown" default.
     assert activity1 is not None
-    assert activity1.value == "investigating"
-    assert activity1.confidence == pytest.approx(0.55)
+    assert activity1.value == "unknown"
+    assert activity1.confidence == pytest.approx(0.50)
 
     # Trigger back-prop from c2.
     result2, _ = await classify_with_session(

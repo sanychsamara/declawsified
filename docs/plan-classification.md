@@ -6,6 +6,8 @@
 - [`plan.md`](./plan.md) -- top-level architecture, repo structure, execution plan, success criteria.
 - [`plan-domain-packs.md`](./plan-domain-packs.md) -- industry-specific activity sub-taxonomies and pack auto-detection (referenced throughout; details live in that file).
 
+> **Working note: commit cadence.** Commit pending work periodically — at minimum after every meaningful chunk lands (new classifier, refactor, experiment with reports). The 2026-04-22 commit `5722b6f` accumulated 73 files / 13k lines because we deferred — that's painful to review and dangerous if anything got lost. Aim for commits under ~500 lines; push the same day. See [`status-classification.md`](./status-classification.md) for the experiment log that should be written alongside each major change.
+
 ---
 
 ## Table of Contents

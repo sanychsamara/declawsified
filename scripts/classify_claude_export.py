@@ -54,7 +54,7 @@ from declawsified_core import (  # noqa: E402
     group_into_arcs,
     session_continuity_classifiers,
 )
-from declawsified_core.data.taxonomies import HYBRID_V1_PATH  # noqa: E402
+from declawsified_core.data.taxonomies import HYBRID_V1_PATH, HYBRID_V2_PATH  # noqa: E402
 from declawsified_core.taxonomy import (  # noqa: E402
     DeepRTCConfig,
     KimiClient,
@@ -111,6 +111,10 @@ def _parse_args() -> argparse.Namespace:
         choices=["anchor-follower", "arc-concat"],
         default="anchor-follower",
         help="Pass-2 revision strategy (default: anchor-follower).",
+    )
+    parser.add_argument(
+        "--taxonomy", type=str, default="v2", choices=["v1", "v2"],
+        help="Taxonomy version (default: v2 — simplified, max depth 3)",
     )
     return parser.parse_args()
 
@@ -198,12 +202,13 @@ async def _amain() -> int:
     # MockEmbedder + top_k = total node count effectively skips embedding-
     # based pruning so the LLM walker sees every branch on every step. With
     # the seed taxonomy at ~40 nodes, the per-step prompt stays small.
-    tax = load_taxonomy(HYBRID_V1_PATH)
+    taxonomy_path = HYBRID_V2_PATH if args.taxonomy == "v2" else HYBRID_V1_PATH
+    tax = load_taxonomy(taxonomy_path)
     n_nodes = sum(1 for _ in tax.all_nodes())
 
     walker = LLMWalker(KimiClient())
     pipeline = await build_pipeline(
-        HYBRID_V1_PATH,
+        taxonomy_path,
         MockEmbedder(dim=16),
         rejection=DeepRTCConfig(
             thresholds={1: 0.0, 2: 0.0, 3: 0.0, 4: 0.0}, default_threshold=0.0
@@ -215,7 +220,7 @@ async def _amain() -> int:
     )
 
     st_embedder = SentenceTransformerEmbedder()
-    tag_index = await build_tag_index(HYBRID_V1_PATH, st_embedder)
+    tag_index = await build_tag_index(taxonomy_path, st_embedder)
     print(
         f"Tag index: {tag_index.size} leaf nodes, dim={st_embedder.dim}",
         flush=True,
