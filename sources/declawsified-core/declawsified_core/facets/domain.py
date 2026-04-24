@@ -6,6 +6,13 @@ the real keyword + ML + LLM cascade (§1.2 Facet `domain`, §1.6 Domain
 Discovery). Returns a single best guess; when keywords for two domains hit,
 the loser lands in `alternatives` so the aggregator's tie-break logic is
 exercised.
+
+NOTE(2026-04-17): we tested including assistant responses alongside user text
+to leverage the LLM's topic vocabulary for disambiguation. It helped in some
+cases (e.g., "linguistics" in a grammar response) but introduced noise from
+ChatGPT refusal language and meta-descriptions, causing regressions elsewhere.
+Reverted to user-only. See the comment in ProjectTreePathClassifier.classify()
+for the full analysis and the v02 vs v03 reports.
 """
 
 from __future__ import annotations

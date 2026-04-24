@@ -22,8 +22,15 @@ from declawsified_core.facets.activity import ActivityRulesClassifier
 from declawsified_core.facets.base import FacetClassifier
 from declawsified_core.facets.context import ContextRulesClassifier
 from declawsified_core.facets.domain import DomainKeywordsClassifier
-from declawsified_core.facets.phase import PhaseSignalsClassifier
-from declawsified_core.facets.project import ProjectMetadataClassifier
+from declawsified_core.facets.project import (
+    ProjectExplicitClassifier,
+    ProjectGitBranchClassifier,
+    ProjectGitRepoClassifier,
+    ProjectTeamRegistryClassifier,
+    ProjectTicketRefClassifier,
+    ProjectWorkdirClassifier,
+)
+from declawsified_core.facets.tags import EmbeddingTagger, KeywordTagger, SemanticTagClassifier
 
 
 @dataclass(frozen=True)
@@ -41,7 +48,7 @@ FACETS: dict[str, FacetConfig] = {
     "domain":   FacetConfig(arity="scalar"),
     "activity": FacetConfig(arity="scalar"),
     "project":  FacetConfig(arity="array", default=["unattributed"]),
-    "phase":    FacetConfig(arity="scalar"),
+    "tags":     FacetConfig(arity="array", min_confidence=0.4, default=[], top_n=5),
 }
 
 
@@ -56,6 +63,13 @@ def default_classifiers() -> list[FacetClassifier]:
         ContextRulesClassifier(),
         DomainKeywordsClassifier(),
         ActivityRulesClassifier(),
-        ProjectMetadataClassifier(),
-        PhaseSignalsClassifier(),
+        ProjectExplicitClassifier(),
+        ProjectGitRepoClassifier(),
+        ProjectGitBranchClassifier(),
+        ProjectWorkdirClassifier(),
+        ProjectTicketRefClassifier(),
+        ProjectTeamRegistryClassifier(),
+        KeywordTagger(),
+        EmbeddingTagger(),        # inert by default — inject index + embedder to enable
+        SemanticTagClassifier(),  # inert by default — inject a pipeline to enable
     ]

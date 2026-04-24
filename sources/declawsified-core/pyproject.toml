@@ -8,12 +8,25 @@ license = { text = "MIT" }
 authors = [{ name = "Declawsified" }]
 dependencies = [
     "pydantic>=2.6,<3",
+    "pyyaml>=6",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
+]
+# Heavy ML runtime — only needed for real embeddings in taxonomy tree-path
+# classification. Without this extra the core pipeline and all non-tree-path
+# classifiers work normally; the tree-path feature can still run with a
+# MockEmbedder for tests. hnswlib (faster ANN) is deliberately NOT listed:
+# it has no Windows wheels, our pure-numpy linear scan handles the planned
+# scale (~2K nodes) well under 5ms, and swapping it in later is a Protocol
+# swap in `taxonomy.index`.
+ml = [
+    "sentence-transformers>=2.5",
+    "openai>=1.0",
 ]
 
 [build-system]
@@ -23,6 +36,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["declawsified_core"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"declawsified_core/data/taxonomies/hybrid-v1.yaml" = "declawsified_core/data/taxonomies/hybrid-v1.yaml"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "ml: tests that require the optional [ml] extras (sentence-transformers, etc.)",
+]

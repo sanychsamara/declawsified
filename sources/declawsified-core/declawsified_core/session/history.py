@@ -62,6 +62,24 @@ class CallHistoryStore(Protocol):
         updated_at: datetime,
     ) -> ClassificationUpdate: ...
 
+    async def set_facet(
+        self,
+        call_id: str,
+        facet: str,
+        classifications: list[Classification],
+    ) -> list[Classification]:
+        """Replace ALL classifications for one facet on a recorded call.
+
+        Used by arc-mode pass-2 revision (`session.arc_revision`), which
+        supersedes pass-1 verdicts wholesale per facet — including array
+        facets like `project` that may carry multiple Classification entries.
+
+        Returns the prior classifications for that facet (audit trail). An
+        empty `classifications` list removes the facet from the call.
+        Inserting a brand-new facet (one pass-1 didn't classify) is supported
+        and returns an empty prior list."""
+        ...
+
     async def updates_for_call(self, call_id: str) -> list[ClassificationUpdate]: ...
 
 
@@ -140,6 +158,25 @@ class InMemoryCallHistoryStore:
         )
         self._updates.setdefault(call_id, []).append(update)
         return update
+
+    async def set_facet(
+        self,
+        call_id: str,
+        facet: str,
+        classifications: list[Classification],
+    ) -> list[Classification]:
+        entry = self._by_call.get(call_id)
+        if entry is None:
+            raise KeyError(f"call {call_id!r} not found in history")
+
+        prior: list[Classification] = [
+            c for c in entry.result.classifications if c.facet == facet
+        ]
+        kept: list[Classification] = [
+            c for c in entry.result.classifications if c.facet != facet
+        ]
+        entry.result.classifications = kept + list(classifications)
+        return prior
 
     async def updates_for_call(self, call_id: str) -> list[ClassificationUpdate]:
         return list(self._updates.get(call_id, []))

@@ -13,7 +13,7 @@
 1. [Classification Taxonomy Design](#1-classification-taxonomy-design)
    - [Core Design Principles](#core-design-principles)
    - [1.1 Faceted Classification: The Architectural Foundation](#11-faceted-classification-the-architectural-foundation)
-   - [1.2 MVP Facet Schema (5 Dimensions)](#12-mvp-facet-schema-5-dimensions) -- context, domain, activity, project, phase
+   - [1.2 MVP Facet Schema (4 Dimensions)](#12-mvp-facet-schema-4-dimensions) -- context, domain, activity, project
    - [1.3 Personal Context Taxonomy](#13-personal-context-taxonomy) -- default life-area projects, personal vocabulary (domain packs moved to `plan-domain-packs.md`)
    - [1.4 Project Discovery](#14-project-discovery) -- shared stack, personal-specific, business-specific
    - [1.5 Activity Discovery](#15-activity-discovery)
@@ -41,9 +41,11 @@ Research (see `research-*.md` in this folder) settled four principles that drive
 
 AI agent work spans software engineering at a FAANG, legal review at a law firm, campaign planning at a marketing agency, homework at a university, medical research at a hospital, and meal planning at a kitchen table. A taxonomy tuned for one flattens the others. A taxonomy generic enough to cover all of them is too coarse for any. The classifier must therefore represent work along **multiple independent axes** instead of one deep hierarchy.
 
-**Principle 2: Faceted classification with 5-6 fixed facets is a reasonable starting point.**
+**Principle 2: Faceted classification with 4 fixed facets.**
 
-Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 5 facets: `context`, `domain`, `activity`, `project`, `phase`. Each is independently extracted, so a single API call produces 5 tags rather than one. Per §1.9, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
+Following Ranganathan's PMEST framework (1933) and Miller/Cowan's cognitive load research (4-7 items tracked in working memory), Declawsified uses 4 facets: `context`, `domain`, `activity`, `project`. Each is independently extracted, so a single API call produces 4 tags rather than one. Per §1.9, this yields ~99% fewer category definitions and ~99% fewer training examples than an equivalent flat hierarchy while supporting any combination -- including combinations we never enumerated.
+
+> **Note (2026-04-22):** `phase` (work lifecycle position: discovery, implementation, review) was originally the 5th facet but was dropped after experiments showed it added no decision-useful signal. The Read/Edit tool-call ratio it relied on was too noisy to produce actionable classifications. The 4-facet schema covers all use cases surfaced in the ChatGPT/Claude export experiments.
 
 Facets are **fixed** in the MVP -- we do not let users add custom facets in v1. Custom facets (Workday Foundation Data Model style) are a post-MVP extension. Fixed facets keep the cognitive model simple, the classifier training surface bounded, and the analytics stable.
 
@@ -53,7 +55,7 @@ The 10 universal activities (investigating, building, improving, verifying, rese
 
 Domain packs (§1.3) are optional YAML overlays shipped with the tool (engineering, legal, marketing, research, finance) that refine the `activity` facet with domain-specific sub-activities underneath the universal 10. Activating a pack effectively selects a more granular activity taxonomy. The universal taxonomy continues to work on everyone's calls regardless of what packs are active.
 
-Architecturally, the pack schema supports extending other facets too (e.g., the `phase` facet could gain legal-specific values: pleading, discovery, trial, appeal). For MVP, packs extend only `activity`; `phase` extension is post-MVP, called out here because the data model accommodates it.
+Architecturally, the pack schema supports extending other facets too (e.g., a future facet could gain domain-specific values). For MVP, packs extend only `activity`.
 
 **Principle 4: Context (personal vs business) changes how projects are discovered.**
 
@@ -86,9 +88,9 @@ Faceted classification requires **99% fewer definitions** and **99% fewer traini
 | **Matter** | The material being worked on | (dropped; file-level granularity added no decision-useful signal) |
 | **Energy** | The action/process/operation | `activity` -- what kind of work (debugging, drafting, research) |
 | **Space** | Location in the organization | `domain` + `project` -- where in the org and what initiative |
-| **Time** | Temporal period/phase | `phase` -- where in the work lifecycle (discovery, implementation, review) |
+| **Time** | Temporal period/phase | (dropped; tool-call-ratio signal too noisy to be decision-useful) |
 
-**Cognitive load constraint**: Miller's Law (1956) and Cowan's revision (2001) establish that humans can track **4 items** in working memory. The system should produce 4-5 facets maximum in the standard view, with optional extended facets available but not prominent. PMEST's 5 dimensions sit exactly at this limit.
+**Cognitive load constraint**: Miller's Law (1956) and Cowan's revision (2001) establish that humans can track **4 items** in working memory. The system should produce 4 facets in the standard view. PMEST's 5 dimensions are reduced to 4 by dropping Matter (file-level granularity) and Time (noisy signal).
 
 **References**
 - Ranganathan, "Colon Classification" (1933) -- PMEST faceted classification theory
@@ -98,7 +100,7 @@ Faceted classification requires **99% fewer definitions** and **99% fewer traini
 - Miller, "The Magical Number Seven" (1956) -- cognitive load limits
 - Cowan, "The Magical Number Four" (2001) -- revised working memory capacity
 
-### 1.2 MVP Facet Schema (5 Dimensions)
+### 1.2 MVP Facet Schema (4 Dimensions)
 
 Every API call is classified along all 5 dimensions simultaneously. Each facet has its own classifier, they run independently and in parallel.
 
@@ -111,7 +113,7 @@ Every API call is classified along all 5 dimensions simultaneously. Each facet h
 
 Every facet output block in this section assumes this contract. The pipeline design in §1.X (Modular Pipeline) formalizes it.
 
-**Facet arity: scalar or 1-d array.** Most facets are **scalar** -- a call has exactly one `context`, one `domain`, one `activity`, one `phase`. The `project` facet is **1-d array** -- a single call can belong to multiple projects simultaneously (e.g., a call that refactors code shared between `auth-service` and `billing-service`, or a personal meal-plan call that relates to both `health` and `home`).
+**Facet arity: scalar or 1-d array.** Most facets are **scalar** -- a call has exactly one `context`, one `domain`, one `activity`. The `project` facet is **1-d array** -- a single call can belong to multiple projects simultaneously (e.g., a call that refactors code shared between `auth-service` and `billing-service`, or a personal meal-plan call that relates to both `health` and `home`).
 
 Multi-project support changes the project-discovery strategy materially: instead of picking one option out of the discovery stack (§1.4), the pipeline can **run all discovery options in parallel and emit every output above the confidence threshold**. Cap the emitted set at the top 2-3 by confidence to avoid noise. If all options agree, the array collapses to a single value; if they diverge, the array captures the actual multi-project nature of the call.
 
@@ -141,7 +143,6 @@ API Call arrives
 |  [activity_classifier] -> activity=debugging (0.91)  |
 |  [domain_classifier]   -> domain=engineering (0.95)  |
 |  [project_classifier]  -> project=auth-service (0.88)|
-|  [phase_classifier]    -> phase=maintenance (0.78)   |
 |                                                      |
 +-- Optional: Cross-Facet Correlation Layer -----------+
 |                                                      |
@@ -159,9 +160,7 @@ Output tags (all dimensions, per-facet confidence):
   auto:domain:engineering
   auto:activity:debugging
   auto:project:auth-service
-  auto:phase:maintenance
   auto:confidence:activity:0.91
-  auto:confidence:phase:0.78
 ```
 
 #### Modular Pipeline Contract
@@ -271,7 +270,6 @@ facets:
   domain:    {arity: scalar, min_confidence: 0.5, default: unattributed}
   activity:  {arity: scalar, min_confidence: 0.5, default: unattributed}
   project:   {arity: array,  min_confidence: 0.5, top_n: 3, default: [unattributed]}
-  phase:     {arity: scalar, min_confidence: 0.5, default: unattributed}
 
 classifiers:
   - {name: context_v1,                   facet: context,  tier: 1, module: declawsified_core.facets.context:SignalClassifier}
@@ -289,8 +287,7 @@ classifiers:
   - {name: domain_team_metadata_v1,      facet: domain,   tier: 1, module: declawsified_core.facets.domain:TeamMetadataClassifier}
   - {name: domain_keywords_v1,           facet: domain,   tier: 2, module: declawsified_core.facets.domain:KeywordsClassifier}
   - {name: domain_llm_v1,                facet: domain,   tier: 3, module: declawsified_core.facets.domain:LLMClassifier}
-  - {name: phase_signals_v1,             facet: phase,    tier: 1, module: declawsified_core.facets.phase:SignalsClassifier}
-  - {name: phase_llm_v1,                 facet: phase,    tier: 3, module: declawsified_core.facets.phase:LLMClassifier}
+  # phase classifiers removed (2026-04-22) -- facet dropped, see §1.2 note
 ```
 
 To add a new custom facet (e.g., `billable` for consulting use cases), add two lines to `facets` and one classifier entry. No other changes required.
@@ -423,18 +420,9 @@ projects:
 
 When no registry exists, projects are auto-detected from git repository names and working directory paths, then surfaced to the user for confirmation and enrichment.
 
-#### Facet: `phase` -- Work Lifecycle Position (WHEN IN THE PROCESS)
+#### ~~Facet: `phase`~~ (DROPPED 2026-04-22)
 
-| Value | Description | Detection Signal |
-|-------|-------------|------------------|
-| `discovery` | Understanding the problem, exploring options | Read-heavy, question-heavy prompts, broad file access |
-| `planning` | Designing the solution, architecting | Architecture docs, diagrams, decision records |
-| `implementation` | Active building, creating, coding | Edit-heavy, new file creation, high write:read ratio |
-| `review` | Reviewing, testing, validating | Review comments, diff inspection, test running |
-| `deployment` | Releasing, deploying, configuring production | Deploy scripts, production configs, release notes |
-| `maintenance` | Fixing, patching, updating existing systems | Bug branches, hotfix, small targeted changes |
-
-**Extraction**: Session-level pattern analysis. A session that starts Read-heavy and transitions to Edit-heavy moves from `discovery` to `implementation`. This is the lowest-confidence facet and can be omitted in early releases.
+> **Dropped.** The `phase` facet (discovery, planning, implementation, review, deployment, maintenance) was removed after classification experiments showed the Read/Edit tool-call ratio signal was too noisy to produce actionable results. The activity facet (`investigating`, `building`, `improving`, `verifying`, etc.) already captures the what-is-happening dimension more reliably. Phase may be revisited if session-level temporal analysis becomes available, but for now the 4-facet schema (context, domain, activity, project) is sufficient.
 
 **References**
 - Reinhardt et al., "Knowledge Worker Roles and Actions" (Knowledge and Process Management, 2011) -- 10 roles, 13 knowledge actions, basis for our universal activities
@@ -459,14 +447,13 @@ When no registry exists, projects are auto-detected from git repository names an
 
 When `context=personal` (see §1.2 `context`), the `project` facet uses a different vocabulary than business. Instead of specific work initiatives (auth-service, patent-q3), personal projects are ongoing life areas (health, finances, relationships) plus any user-declared personal initiatives (marathon-training, home-renovation-2026, etc.).
 
-The same 5 facets apply across both contexts -- only the values change. There is no separate personal "area" facet; `project` handles it uniformly:
+The same 4 facets apply across both contexts -- only the values change. There is no separate personal "area" facet; `project` handles it uniformly:
 
 | Facet | context=business | context=personal |
 |-------|------------------|------------------|
 | `project` | auth-service, patent-q3-filings, frontend-redesign | health, finances, marathon-training, home-renovation-2026 |
 | `activity` | same 10 universal activities | same 10 universal activities |
 | `domain` | engineering, legal, marketing, ... | (less relevant; can default to `life`) |
-| `phase` | discovery, implementation, review, ... | (less structured in personal use) |
 
 Context detection (§1.2) does the switch automatically. The content below describes **what personal project values look like** and **how they get discovered**.
 

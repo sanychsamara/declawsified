@@ -21,9 +21,24 @@ from declawsified_core.models import (
     SessionState,
     ToolCall,
 )
-from declawsified_core.pipeline import classify_with_session, run_pipeline
+from declawsified_core.facets.tags import (
+    EmbeddingTagger,
+    KeywordTagger,
+    SemanticTagClassifier,
+    build_tag_index,
+)
+from declawsified_core.pipeline import (
+    classify_arc_with_session,
+    classify_with_session,
+    flush_session,
+    run_pipeline,
+)
 from declawsified_core.registry import FACETS, FacetConfig, default_classifiers
 from declawsified_core.session import (
+    Arc,
+    ArcRevisionResult,
+    ArcRevisionStrategy,
+    ArcRevisionUpdate,
     BackPropConfig,
     CallHistoryStore,
     ClassificationUpdate,
@@ -35,13 +50,27 @@ from declawsified_core.session import (
     SessionStore,
     back_propagate,
     decide_session,
+    group_into_arcs,
+    is_anchor,
+    resolve_anchors,
+    revise_arc,
     session_continuity_classifiers,
 )
 
 __all__ = [
     "classify",
     "classify_with_session",
+    "classify_arc_with_session",
+    "flush_session",
     "run_pipeline",
+    "Arc",
+    "ArcRevisionResult",
+    "ArcRevisionStrategy",
+    "ArcRevisionUpdate",
+    "group_into_arcs",
+    "is_anchor",
+    "resolve_anchors",
+    "revise_arc",
     "default_classifiers",
     "FACETS",
     "FacetConfig",
@@ -67,4 +96,9 @@ __all__ = [
     "SessionStore",
     "decide_session",
     "session_continuity_classifiers",
+    # Tags / semantic classification
+    "EmbeddingTagger",
+    "KeywordTagger",
+    "SemanticTagClassifier",
+    "build_tag_index",
 ]
