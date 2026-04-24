@@ -200,3 +200,74 @@ def test_build_classify_input_no_session_header() -> None:
     }
     ci, _ = build_classify_input(request_body, None, {})
     assert ci.session_id is None
+
+
+def test_only_last_user_message_extracted() -> None:
+    """Claude Code resends full history; we must classify only the latest
+    user turn. Otherwise stale topics keep firing tags every turn."""
+    request_body = {
+        "model": "claude-sonnet-4-20250514",
+        "messages": [
+            {"role": "user", "content": "Tell me about Michael Jordan"},
+            {"role": "assistant", "content": "Michael Jordan is an NBA legend..."},
+            {"role": "user", "content": "Got it. Now help me fix this Python bug."},
+            {"role": "assistant", "content": "Sure, what's the error?"},
+            {"role": "user", "content": "TypeError on line 42"},
+        ],
+    }
+    ci, _ = build_classify_input(request_body, None, {})
+
+    # Only the LATEST user message — no Michael Jordan, no Python bug.
+    assert len(ci.messages) == 1
+    assert ci.messages[0].role == "user"
+    assert "TypeError" in ci.messages[0].content
+    assert "Michael Jordan" not in ci.messages[0].content
+    assert "Python bug" not in ci.messages[0].content
+
+
+def test_meta_agent_transcript_skipped() -> None:
+    """Compaction/summary calls wrap the entire session transcript as one
+    user message. Those classify as everything-and-nothing — skip them."""
+    request_body = {
+        "model": "claude-sonnet-4-20250514",
+        "messages": [
+            {
+                "role": "user",
+                "content": "<transcript>\n\nUser: tell me about basketball\nAssistant: ..."
+                           + "\n" + "x" * 100,
+            }
+        ],
+    }
+    ci, _ = build_classify_input(request_body, None, {})
+    # Extractor returns no messages — server skips classification.
+    assert ci.messages == []
+
+
+def test_long_user_message_skipped() -> None:
+    """Very long user payloads (>8KB) are almost always meta-agent calls,
+    not human input."""
+    request_body = {
+        "model": "claude-sonnet-4-20250514",
+        "messages": [{"role": "user", "content": "lorem ipsum " * 1000}],
+    }
+    ci, _ = build_classify_input(request_body, None, {})
+    assert ci.messages == []
+
+
+def test_last_user_message_skips_tool_results() -> None:
+    """If the very last message is a tool_result (still role=user but no
+    text content), walk back to find the actual user prompt."""
+    request_body = {
+        "model": "claude-sonnet-4-20250514",
+        "messages": [
+            {"role": "user", "content": "Run the tests"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "pytest"}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "all pass"}]},
+        ],
+    }
+    ci, _ = build_classify_input(request_body, None, {})
+
+    # The trailing user message is a tool_result with no text — fall back
+    # to the prior real user prompt.
+    assert len(ci.messages) == 1
+    assert "Run the tests" in ci.messages[0].content

@@ -38,31 +38,53 @@ from declawsified_core.taxonomy.pipeline import TreePathPipeline
 # KeywordTagger — lightweight, no LLM
 # ---------------------------------------------------------------------------
 
+# Tag groups: each name is a v2 taxonomy leaf. Avoid abstract umbrella
+# tags like "personal" / "non-work" — they're vague and tell admins
+# nothing actionable. Every tag here is a real noun a user would say.
+#
+# Keywords are matched literally (substring). Multiple hits raise
+# confidence (1 hit→0.50, 2 hits→0.65, 3+→0.80).
 _TAG_KEYWORDS: dict[str, tuple[str, ...]] = {
     "sports": (
         "basketball", "nba", "football", "soccer", "baseball", "hockey",
         "tennis", "golf", "athlete", "playoffs", "championship", "league",
         "stadium", "coach", "quarterback", "striker", "goalkeeper",
     ),
-    "personal": (
-        "recipe", "vacation", "birthday", "wedding", "family", "kids",
-        "parenting", "relationship", "dating", "marriage", "divorce",
-        "hobby", "garden", "pet", "dog", "cat",
-    ),
-    "non-work": (
+    "entertainment": (
         "movie", "film", "tv show", "anime", "manga", "comic",
-        "game", "gaming", "travel", "shopping", "restaurant", "music",
-        "song", "concert", "novel", "fiction", "poetry",
+        "novel", "fiction", "poetry", "podcast",
+    ),
+    "video-games": (
+        "game", "gaming", "playstation", "xbox", "nintendo", "steam",
+        "minecraft", "fortnite",
+    ),
+    "music": (
+        "song", "concert", "album", "playlist", "guitar", "piano",
+        "spotify",
+    ),
+    "travel": (
+        "flight", "hotel", "vacation", "itinerary", "airbnb", "passport",
+        "destination",
+    ),
+    "food": (
+        "recipe", "restaurant", "meal", "cooking", "baking", "ingredient",
+    ),
+    "family": (
+        "wedding", "birthday", "parenting", "kids", "newborn", "toddler",
+        "marriage", "divorce", "spouse",
+    ),
+    "pets": (
+        "dog", "cat", "puppy", "kitten", "veterinary", "pet food",
     ),
     "sensitive": (
         "salary", "fired", "layoff", "lawsuit", "legal dispute",
-        "medical", "diagnosis", "therapy", "mental health", "prescription",
-        "confidential", "secret", "password", "credential",
+        "diagnosis", "therapy", "mental health", "prescription",
+        "confidential", "secret", "password", "credential", "ssn",
     ),
     "engineering": (
-        "code", "function", "class", "bug", "refactor", "api",
-        "database", "deploy", "server", "endpoint", "repository",
-        "pull request", "merge", "commit", "pipeline", "docker",
+        "function", "refactor", "api", "endpoint", "repository",
+        "pull request", "merge commit", "docker", "kubernetes",
+        "microservice", "schema", "migration",
     ),
 }
 

@@ -156,7 +156,7 @@ async def test_default_classifiers_includes_keyword_tagger() -> None:
     taggers = [c for c in default_classifiers() if c.name == "keyword_tagger_v1"]
     assert len(taggers) == 1
     out = await taggers[0].classify(
-        _input(messages=[Message(role="user", content="Fix the database bug")])
+        _input(messages=[Message(role="user", content="refactor the api endpoint in this repository")])
     )
     tags = {c.value for c in out}
     assert "engineering" in tags

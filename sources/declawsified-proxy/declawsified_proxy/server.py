@@ -115,6 +115,19 @@ class ProxyServer:
                 logger.debug("No session_id — skipping classification")
                 return
 
+            # If the extractor returned no messages, the request was a
+            # compaction/summary/sub-agent call (full transcript wrapped as
+            # one user message). Skip classification — those payloads hit
+            # every keyword and pollute every tag.
+            if not classify_input.messages:
+                logger.info(
+                    "Classify skipped (meta-agent payload) session=%s",
+                    classify_input.session_id[:12],
+                )
+                return
+
+            user_text = classify_input.messages[0].content[:200]
+
             result, _updates = await classify_with_session(
                 classify_input,
                 self._classifiers,
@@ -123,11 +136,16 @@ class ProxyServer:
             )
             self._state.update(classify_input.session_id, result, cost)
 
-            facets = {c.facet: c.value for c in result.classifications}
+            tags = sorted(
+                [c for c in result.classifications if c.facet == "tags"],
+                key=lambda c: -c.confidence,
+            )
+            tags_str = ", ".join(f"{c.value}:{c.confidence:.2f}({c.source})" for c in tags) or "(none)"
             logger.info(
-                "Classified session=%s: %s",
+                "Classify session=%s text=%r tags=[%s]",
                 classify_input.session_id[:12],
-                facets,
+                user_text,
+                tags_str,
             )
         except Exception:
             logger.exception("Classification failed (non-fatal)")

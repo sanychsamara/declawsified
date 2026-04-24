@@ -139,6 +139,36 @@ def _flatten_content(content: Any) -> str:
     return ""
 
 
+_META_AGENT_MARKERS: tuple[str, ...] = (
+    "<transcript>",
+    "</transcript>",
+    "<conversation_summary>",
+    "Below is a transcript of the conversation",
+    "Summarize the following conversation",
+    "Compact the following conversation",
+)
+_META_AGENT_LENGTH_THRESHOLD: int = 8000
+
+
+def _is_meta_agent_payload(text: str) -> bool:
+    """Detect Claude Code's compaction / summary / sub-agent calls.
+
+    These calls wrap the entire session transcript (often 20-100 KB) as a
+    single user message. Classifying them hits keywords for every topic
+    discussed across the entire session, polluting the live tag state.
+
+    Detection: known marker strings + length heuristic. False positives
+    here mean we skip classifying a legitimate (very long) user prompt —
+    acceptable trade-off; users typing >8KB at once is rare and the
+    classifier is unhelpful on such large bodies anyway.
+    """
+    if any(marker in text for marker in _META_AGENT_MARKERS):
+        return True
+    if len(text) >= _META_AGENT_LENGTH_THRESHOLD:
+        return True
+    return False
+
+
 def _extract_tool_calls(content: Any) -> list[ToolCall]:
     """Extract tool_use blocks from an assistant message's content."""
     if not isinstance(content, list):
@@ -189,13 +219,31 @@ def build_classify_input(
         or headers.get("X-Claude-Code-Session-Id")
     )
 
-    # Messages: convert from Anthropic format to declawsified format.
+    # Messages: extract ONLY the latest user message — Claude Code resends
+    # the entire conversation history on every API call, so including all
+    # past messages causes stale topics to keep firing tags every turn
+    # ("Michael Jordan" mentioned 20 turns ago would re-fire 'sports' on
+    # every subsequent classification). Walk from the end backward to find
+    # the first user-role message with non-empty text content.
+    #
+    # Special-case: Claude Code's compaction/summary agent wraps the entire
+    # session transcript as a single user message ("<transcript>..."). That
+    # confuses every classifier because it contains every topic ever
+    # discussed in the session. Skip those by leaving messages empty.
     messages: list[Message] = []
-    for msg in request_body.get("messages", []):
+    raw_messages = request_body.get("messages", [])
+    for msg in reversed(raw_messages):
         role = msg.get("role", "user")
+        if role != "user":
+            continue
         text = _flatten_content(msg.get("content", ""))
-        if text.strip():
-            messages.append(Message(role=role, content=text))
+        if not text.strip():
+            continue
+        if _is_meta_agent_payload(text):
+            # Skip — compaction/summary/sub-agent call. No classification.
+            break
+        messages.append(Message(role=role, content=text))
+        break
 
     # System prompt parsing.
     system = request_body.get("system", "")

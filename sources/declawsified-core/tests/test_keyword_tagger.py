@@ -34,12 +34,14 @@ async def test_sports_tag(tagger: KeywordTagger) -> None:
 async def test_personal_tag(tagger: KeywordTagger) -> None:
     result = await tagger.classify(_input("Find a recipe for my kid's birthday cake"))
     tags = {c.value for c in result}
-    assert "personal" in tags
+    assert "food" in tags or "family" in tags
 
 
 @pytest.mark.asyncio
 async def test_engineering_tag(tagger: KeywordTagger) -> None:
-    result = await tagger.classify(_input("Fix the bug in the API endpoint and deploy"))
+    result = await tagger.classify(
+        _input("Refactor the api endpoint and the migration in this repository")
+    )
     tags = {c.value for c in result}
     assert "engineering" in tags
 
