@@ -27,6 +27,7 @@ from declawsified_core.session.store import SessionStore
 
 from declawsified_proxy.config import ProxyConfig
 from declawsified_proxy.extractor import build_classify_input
+from declawsified_proxy.spend_log import SpendLogger
 from declawsified_proxy.state import StateManager
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,7 @@ class ProxyServer:
         self._session_store = session_store
         self._history = history
         self._state = StateManager(config.state_file)
+        self._spend_log = SpendLogger(config.spend_log_dir)
         self._http: aiohttp.ClientSession | None = None
 
     async def _get_http(self) -> aiohttp.ClientSession:
@@ -106,49 +108,119 @@ class ProxyServer:
         response_body: dict,
         raw_headers: dict[str, str],
     ) -> None:
-        """Run classification on one completed turn. Never raises."""
+        """Run classification on one completed turn. Never raises.
+
+        Writes a spend-log row for every call we have a session_id for —
+        including classifier failures (with `classifier_error` set) and
+        meta-agent payloads (with `facets={}` and an explanatory error),
+        so cost attribution doesn't silently drop calls.
+        """
+        classify_input = None
+        cost = 0.0
+        result = None
+        classifier_error: str | None = None
+
         try:
             classify_input, cost = build_classify_input(
                 request_body, response_body, raw_headers,
             )
-            if classify_input.session_id is None:
-                logger.debug("No session_id — skipping classification")
-                return
+        except Exception as exc:
+            logger.exception("build_classify_input failed (non-fatal)")
+            # Without a classify_input we have no session_id / model — can't
+            # write a meaningful spend-log row either. Bail.
+            return
 
-            # If the extractor returned no messages, the request was a
-            # compaction/summary/sub-agent call (full transcript wrapped as
-            # one user message). Skip classification — those payloads hit
-            # every keyword and pollute every tag.
-            if not classify_input.messages:
-                logger.info(
-                    "Classify skipped (meta-agent payload) session=%s",
-                    classify_input.session_id[:12],
-                )
-                return
+        if classify_input.session_id is None:
+            logger.debug("No session_id — skipping classification + spend log")
+            return
 
-            user_text = classify_input.messages[0].content[:200]
+        # Meta-agent payloads (compaction / summary / sub-agent) intentionally
+        # skip classification — they hit every keyword and pollute every tag.
+        # But the call still cost money, so we DO log it with an explanatory
+        # `classifier_error` instead of dropping it silently.
+        if not classify_input.messages:
+            logger.info(
+                "Classify skipped (meta-agent payload) session=%s",
+                classify_input.session_id[:12],
+            )
+            self._write_spend_row(
+                classify_input=classify_input,
+                response_body=response_body,
+                cost=cost,
+                result=None,
+                classifier_error="skipped: meta-agent payload",
+            )
+            return
 
+        user_text = classify_input.messages[0].content[:200]
+
+        try:
             result, _updates = await classify_with_session(
                 classify_input,
                 self._classifiers,
                 self._session_store,
                 self._history,
             )
-            self._state.update(classify_input.session_id, result, cost)
+        except Exception as exc:
+            classifier_error = f"{type(exc).__name__}: {exc}"
+            logger.exception("Classification failed (non-fatal)")
+
+        if result is not None:
+            try:
+                self._state.update(classify_input.session_id, result, cost)
+            except Exception:
+                logger.exception("State update failed (non-fatal)")
 
             tags = sorted(
                 [c for c in result.classifications if c.facet == "tags"],
                 key=lambda c: -c.confidence,
             )
-            tags_str = ", ".join(f"{c.value}:{c.confidence:.2f}({c.source})" for c in tags) or "(none)"
+            tags_str = ", ".join(
+                f"{c.value}:{c.confidence:.2f}({c.source})" for c in tags
+            ) or "(none)"
             logger.info(
                 "Classify session=%s text=%r tags=[%s]",
                 classify_input.session_id[:12],
                 user_text,
                 tags_str,
             )
-        except Exception:
-            logger.exception("Classification failed (non-fatal)")
+
+        self._write_spend_row(
+            classify_input=classify_input,
+            response_body=response_body,
+            cost=cost,
+            result=result,
+            classifier_error=classifier_error,
+        )
+
+    def _write_spend_row(
+        self,
+        *,
+        classify_input,
+        response_body: dict,
+        cost: float,
+        result,
+        classifier_error: str | None,
+    ) -> None:
+        """Best-effort write to spend.jsonl. Never raises."""
+        usage = (response_body or {}).get("usage", {}) or {}
+        prompt_text = (
+            classify_input.messages[0].content
+            if classify_input.messages else ""
+        )
+        self._spend_log.append(
+            call_id=classify_input.call_id,
+            session_id=classify_input.session_id,
+            timestamp=classify_input.timestamp,
+            model=classify_input.model or "unknown",
+            agent=classify_input.agent or "unknown",
+            cost_usd=cost,
+            tokens=usage,
+            facets=(result.classifications if result is not None else None),
+            prompt_text=prompt_text,
+            pipeline_version=(result.pipeline_version if result is not None else None),
+            classifier_error=classifier_error,
+        )
 
     # ------------------------------------------------------------------
     # Request handling

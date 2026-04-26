@@ -36,6 +36,14 @@ class ProxyConfig:
             )
         )
     )
+    spend_log_dir: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get(
+                "DECLAWSIFIED_SPEND_LOG_DIR",
+                str(Path.home() / ".declawsified" / "spend"),
+            )
+        )
+    )
     log_level: str = field(
         default_factory=lambda: os.environ.get("DECLAWSIFIED_LOG_LEVEL", "INFO")
     )

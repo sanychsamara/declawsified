@@ -43,7 +43,9 @@
       "WebFetch(domain:www.fool.com)",
       "WebFetch(domain:www.federalreserve.gov)",
       "WebFetch(domain:www.ischool.berkeley.edu)",
-      "WebFetch(domain:assets.bbhub.io)"
+      "WebFetch(domain:assets.bbhub.io)",
+      "Skill(claude-api)",
+      "Read(//tmp/**)"
     ]
   }
 }

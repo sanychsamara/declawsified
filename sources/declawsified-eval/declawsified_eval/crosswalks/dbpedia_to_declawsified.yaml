@@ -1,0 +1,29 @@
+# DBPedia hierarchical classes → declawsified taxonomy leaves crosswalk
+# Used by A5 (EmbeddingTagger top-k accuracy).
+#
+# DBPedia is encyclopedia text, not conversation, so the embedder will be
+# stress-tested in a different distribution than its training (taxonomy
+# leaf descriptions). This is intentional — A5 measures generalization.
+#
+# Only L1 → declawsified-leaf mappings are listed here. The full L3 has
+# 219 classes; mapping each to a declawsified leaf is impractical. A5
+# instead measures: given a DBPedia text, does the EmbeddingTagger's top-k
+# tags include the leaf that the L1→declawsified mapping would consider
+# correct? This is a coarse signal — pass means the embedder picked up
+# something thematically related, not exact taxonomic alignment.
+
+version: 2026-04-24
+
+# DBPedia L1 (9 classes per the dataset card) → declawsified taxonomy leaves
+# we'd reasonably expect the EmbeddingTagger to surface. Multi-target: any
+# of the listed leaves counts as a hit.
+l1_to_declawsified_leaves:
+  Agent:                 [career, education, family, parenting]    # people, organizations
+  Device:                [gadgets, engineering]
+  Event:                 [news, entertainment]
+  Place:                 [travel, geography]
+  Species:               [pets, nature, science-technology]
+  SportsSeason:          [sports, basketball, soccer, american-football, baseball, hockey]
+  TopicalConcept:        [science-technology, education]
+  UnitOfWork:            [art-hobbies, books-literature]
+  Work:                  [movies-tv, music, books-literature, video-games]

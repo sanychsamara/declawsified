@@ -95,3 +95,79 @@ async def test_facet_is_tags(tagger: KeywordTagger) -> None:
     for c in result:
         assert c.facet == "tags"
         assert c.classifier_name == "keyword_tagger_v1"
+
+
+# ---------------------------------------------------------------------------
+# Word-boundary regression tests — the original substring-match implementation
+# fired tags on common English words that happened to contain a keyword as
+# a substring. These tests pin the word-boundary fix in place.
+# See docs/des-4000-execution-notes.md for the bug origin.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_calculate_does_not_fire_pets(tagger: KeywordTagger) -> None:
+    """Original bug: 'cat' substring matched 'calculate' → wrong 'pets' tag."""
+    result = await tagger.classify(
+        _input("Run classification code against des-4000, calculate precision/recall")
+    )
+    tags = {c.value for c in result}
+    assert "pets" not in tags
+
+
+@pytest.mark.asyncio
+async def test_category_does_not_fire_pets(tagger: KeywordTagger) -> None:
+    result = await tagger.classify(_input("Pick a category for this article"))
+    tags = {c.value for c in result}
+    assert "pets" not in tags
+
+
+@pytest.mark.asyncio
+async def test_capital_does_not_fire_engineering(tagger: KeywordTagger) -> None:
+    """Original bug: 'api' substring matched 'capital' → wrong 'engineering' tag."""
+    result = await tagger.classify(_input("What is the capital of France?"))
+    tags = {c.value for c in result}
+    assert "engineering" not in tags
+
+
+@pytest.mark.asyncio
+async def test_semicolon_does_not_fire_entertainment(tagger: KeywordTagger) -> None:
+    """Original bug: 'comic' substring matched 'semicolon'."""
+    result = await tagger.classify(_input("You forgot a semicolon at the end of line 42"))
+    tags = {c.value for c in result}
+    assert "entertainment" not in tags
+
+
+@pytest.mark.asyncio
+async def test_real_pets_still_fires(tagger: KeywordTagger) -> None:
+    """The fix should not break legitimate pet-related text."""
+    result = await tagger.classify(
+        _input("My puppy needs to see the veterinarian for shots")
+    )
+    tags = {c.value for c in result}
+    assert "pets" in tags
+
+
+@pytest.mark.asyncio
+async def test_real_engineering_still_fires(tagger: KeywordTagger) -> None:
+    result = await tagger.classify(
+        _input("My docker container won't connect to the rest api endpoint")
+    )
+    tags = {c.value for c in result}
+    assert "engineering" in tags
+
+
+@pytest.mark.asyncio
+async def test_plurals_match(tagger: KeywordTagger) -> None:
+    """Word-boundary mode requires explicit plurals — they're in the dict."""
+    result = await tagger.classify(_input("I love watching action movies on weekends"))
+    tags = {c.value for c in result}
+    assert "entertainment" in tags
+
+
+@pytest.mark.asyncio
+async def test_phrase_match_pet_food(tagger: KeywordTagger) -> None:
+    """Multi-word phrase 'pet food' should match (\\b around inner space works)."""
+    result = await tagger.classify(_input("Where can I buy bulk pet food online?"))
+    tags = {c.value for c in result}
+    assert "pets" in tags

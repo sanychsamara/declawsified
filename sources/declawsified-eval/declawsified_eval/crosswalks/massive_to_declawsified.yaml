@@ -1,0 +1,42 @@
+# MASSIVE 1.1 (en-US) → declawsified facets crosswalk
+# Used by A6 (DomainKeywordsClassifier accuracy).
+#
+# MASSIVE is voice-assistant data; most scenarios do not map to our
+# business-domain enum (engineering / marketing / finance / legal / health).
+# Mappings here are intentionally conservative — when in doubt, "unknown".
+# See observe_scenarios() in datasets/massive.py for the exact set present.
+
+version: 2026-04-24
+
+# Single-domain map: each MASSIVE scenario → exactly one declawsified domain
+# value (or "unknown"). For A6 accuracy, we expect most scenarios to map to
+# "unknown" since MASSIVE does not cover business-domain content. The few
+# real mappings (iot→engineering, etc.) test that the classifier can find a
+# signal when it exists.
+scenario_to_domain:
+  alarm:           unknown        # smart-home alarms; not a business domain
+  audio:           unknown        # voice/audio playback
+  calendar:        unknown        # personal calendar
+  cooking:         unknown        # personal cooking; would map to a 'food' tag, not domain
+  datetime:        unknown
+  email:           unknown
+  general:         unknown
+  iot:             engineering    # smart-home device control — closest fit; debatable
+  lists:           unknown
+  music:           unknown
+  news:            unknown        # news consumption is not 'marketing'
+  play:            unknown
+  qa:              unknown        # generic Q&A
+  recommendation:  unknown
+  social:          unknown
+  takeaway:        unknown        # food delivery
+  transport:       unknown
+  weather:         unknown
+
+# Tag map (used by A1/A2 if MASSIVE is the source). Note: MASSIVE has no
+# 'sports' or 'entertainment' scenarios — A1/A2 fall back to DeepPavlov.
+scenario_to_tags:
+  cooking:         [food]
+  music:           [music]
+  takeaway:        [food]
+  transport:       [travel]       # 'transport' covers personal transport; a stretch

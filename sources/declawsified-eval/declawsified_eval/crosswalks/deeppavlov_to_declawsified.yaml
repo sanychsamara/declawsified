@@ -1,0 +1,24 @@
+# DeepPavlov 33 topics → declawsified KeywordTagger groups
+# Used by A1 (sports recall) and A2 (entertainment recall).
+#
+# Each DeepPavlov topic maps to the declawsified KeywordTagger group(s) we
+# expect to fire when that topic is present. A1's gold is binary: "sports"
+# in the row's topics → expected to fire `sports` keyword group. A2's gold
+# is similar for {Movies&Tv, Music} → entertainment / music.
+
+version: 2026-04-24
+
+topic_to_keyword_groups:
+  Sports:               [sports]
+  Movies&Tv:            [entertainment]
+  Music:                [music]
+  VideoGames:           [video-games]
+  Travel:               [travel]
+  Food:                 [food]
+  Family&Relationships: [family]
+  Animals&Pets:         [pets]
+  Health&Medicine:      [sensitive]            # medical → sensitive in our schema
+  Psychology:           [sensitive]
+  Depression:           [sensitive]
+  Finance:              []                     # would map to a 'finance' tag — not in v2
+  Job:                  [sensitive]            # job/firing references should fire sensitive

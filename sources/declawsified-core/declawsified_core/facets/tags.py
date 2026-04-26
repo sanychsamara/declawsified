@@ -42,50 +42,92 @@ from declawsified_core.taxonomy.pipeline import TreePathPipeline
 # tags like "personal" / "non-work" — they're vague and tell admins
 # nothing actionable. Every tag here is a real noun a user would say.
 #
-# Keywords are matched literally (substring). Multiple hits raise
-# confidence (1 hit→0.50, 2 hits→0.65, 3+→0.80).
+# Keywords are matched as **whole words** via word-boundary regex (\b...\b).
+# This avoids substring traps like "cat" → "category" → wrong "pets" tag.
+# (Pre-2026-04-26 used bare substring `kw in text`, which produced false
+# positives on common English words. See docs/des-4000-execution-notes.md.)
+#
+# Multi-word keywords like "pet food" still match correctly because \b
+# matches word/non-word boundaries, and the inner space is a non-word char.
+#
+# Match counts drive confidence: 1 hit→0.50, 2 hits→0.65, 3+→0.80.
+# Add common inflections explicitly (movie + movies, song + songs) since
+# word-boundary regex won't match plurals or -ing forms automatically.
 _TAG_KEYWORDS: dict[str, tuple[str, ...]] = {
     "sports": (
         "basketball", "nba", "football", "soccer", "baseball", "hockey",
-        "tennis", "golf", "athlete", "playoffs", "championship", "league",
-        "stadium", "coach", "quarterback", "striker", "goalkeeper",
+        "tennis", "golf", "athlete", "athletes", "playoff", "playoffs",
+        "championship", "championships", "league", "leagues", "stadium",
+        "stadiums", "coach", "coaches", "quarterback", "striker", "goalkeeper",
     ),
     "entertainment": (
-        "movie", "film", "tv show", "anime", "manga", "comic",
-        "novel", "fiction", "poetry", "podcast",
+        "movie", "movies", "film", "films", "tv show", "tv shows",
+        "anime", "manga", "comic", "comics", "novel", "novels",
+        "fiction", "poetry", "podcast", "podcasts",
     ),
     "video-games": (
-        "game", "gaming", "playstation", "xbox", "nintendo", "steam",
-        "minecraft", "fortnite",
+        # Note: "game"/"gaming" intentionally omitted — too broad
+        # ("the game" / "gaming the system" — too many false positives).
+        "playstation", "xbox", "nintendo", "minecraft", "fortnite",
+        "video game", "video games", "console game", "speedrun",
     ),
     "music": (
-        "song", "concert", "album", "playlist", "guitar", "piano",
-        "spotify",
+        "song", "songs", "concert", "concerts", "album", "albums",
+        "playlist", "playlists", "guitar", "piano", "spotify",
     ),
     "travel": (
-        "flight", "hotel", "vacation", "itinerary", "airbnb", "passport",
-        "destination",
+        "flight", "flights", "hotel", "hotels", "vacation", "vacations",
+        "itinerary", "airbnb", "passport", "destination", "destinations",
     ),
     "food": (
-        "recipe", "restaurant", "meal", "cooking", "baking", "ingredient",
+        "recipe", "recipes", "restaurant", "restaurants", "meal", "meals",
+        "cooking", "baking", "ingredient", "ingredients",
     ),
     "family": (
-        "wedding", "birthday", "parenting", "kids", "newborn", "toddler",
-        "marriage", "divorce", "spouse",
+        "wedding", "weddings", "birthday", "birthdays", "parenting",
+        "kids", "newborn", "toddler", "toddlers", "marriage", "divorce",
+        "spouse",
     ),
     "pets": (
-        "dog", "cat", "puppy", "kitten", "veterinary", "pet food",
+        # Note: "cat"/"dog" intentionally omitted — too many false positives
+        # via substring (calculate, dogma) AND legit word-boundary contexts
+        # ("the cat ate the homework" is rarely about a real pet in dev work).
+        # Use unambiguous pet vocabulary only.
+        "puppy", "puppies", "kitten", "kittens", "veterinary", "veterinarian",
+        "pet food", "house pet", "house pets",
     ),
     "sensitive": (
-        "salary", "fired", "layoff", "lawsuit", "legal dispute",
-        "diagnosis", "therapy", "mental health", "prescription",
-        "confidential", "secret", "password", "credential", "ssn",
+        "salary", "salaries", "fired", "layoff", "layoffs", "lawsuit",
+        "lawsuits", "legal dispute", "diagnosis", "therapy", "mental health",
+        "prescription", "prescriptions", "confidential", "secret", "secrets",
+        "password", "passwords", "credential", "credentials", "ssn",
     ),
     "engineering": (
-        "function", "refactor", "api", "endpoint", "repository",
-        "pull request", "merge commit", "docker", "kubernetes",
-        "microservice", "schema", "migration",
+        # Note: "api"/"code"/"function" intentionally NOT bare — too many
+        # false positives ("capital", "API economy" in business doc, etc.).
+        # Use phrases or domain-specific tokens.
+        "refactor", "refactoring", "api endpoint", "rest api", "graphql",
+        "repository", "repositories", "pull request", "pull requests",
+        "merge commit", "merge conflict", "docker", "kubernetes", "k8s",
+        "microservice", "microservices", "database schema", "db migration",
+        "stack trace", "deployment", "ci/cd",
     ),
+}
+
+
+# Compile word-boundary regex per tag — done at import time so per-call
+# cost stays <1ms. `\b` is Python's word-boundary anchor, which marks the
+# transition between a word character ([A-Za-z0-9_]) and a non-word
+# character. For multi-word keywords like "pet food" the inner space is
+# a non-word char, so the regex still matches the phrase as written.
+import re as _re
+
+_TAG_PATTERNS: dict[str, _re.Pattern[str]] = {
+    tag: _re.compile(
+        r"\b(?:" + "|".join(_re.escape(k) for k in keywords) + r")\b",
+        _re.IGNORECASE,
+    )
+    for tag, keywords in _TAG_KEYWORDS.items()
 }
 
 
@@ -115,8 +157,8 @@ class KeywordTagger:
             return []
 
         out: list[Classification] = []
-        for tag, keywords in _TAG_KEYWORDS.items():
-            hits = sum(1 for kw in keywords if kw in text)
+        for tag, pattern in _TAG_PATTERNS.items():
+            hits = len(pattern.findall(text))
             if hits == 0:
                 continue
             confidence = 0.50 if hits == 1 else (0.65 if hits == 2 else 0.80)
