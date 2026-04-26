@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
+import signal
 import sys
 
 from aiohttp import web
@@ -100,8 +102,15 @@ def main() -> int:
     file_handler.setFormatter(fmt)
     root_logger.addHandler(file_handler)
 
-    logging.getLogger("declawsified_proxy").info(
-        "Proxy logs writing to %s", log_file,
+    proxy_logger = logging.getLogger("declawsified_proxy")
+    proxy_logger.info(
+        "Proxy starting | pid=%d | log=%s | python=%s | platform=%s",
+        os.getpid(), log_file, sys.version.split()[0], sys.platform,
+    )
+    proxy_logger.info(
+        "Proxy config | host=%s | port=%d | upstream=%s | state_file=%s | spend_dir=%s",
+        config.host, config.port, config.upstream_url,
+        config.state_file, config.spend_log_dir,
     )
 
     # Try to enable EmbeddingTagger with a real sentence-transformer.
@@ -143,15 +152,52 @@ def main() -> int:
     history = InMemoryCallHistoryStore()
 
     server = ProxyServer(config, classifiers, session_store, history)
-    app = server.create_app()
+    # Hook explicit shutdown logging onto the app lifecycle so the log
+    # always shows a clear "shutdown initiated" line BEFORE aiohttp's
+    # cascade of in-flight cancellations (which is what the noisy
+    # KeyboardInterrupt → CancelledError → InvalidStateError trace looks
+    # like in older logs). Combined with the SIGINT/SIGTERM handler below,
+    # any termination produces at least one human-readable log line.
+    async def on_shutdown(_app: web.Application) -> None:
+        proxy_logger.info("Proxy shutdown initiated (aiohttp on_shutdown)")
+    async def on_cleanup_done(_app: web.Application) -> None:
+        proxy_logger.info("Proxy shutdown complete | pid=%d", os.getpid())
+    app.on_shutdown.append(on_shutdown)
+    app.on_cleanup.append(on_cleanup_done)
+
+    # Explicit signal handlers — log which signal caused the shutdown
+    # before aiohttp tears the loop down. SIGTERM only available on POSIX;
+    # Windows uses SIGBREAK / Ctrl+C translated to SIGINT by Python.
+    for sig_name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, sig_name, None)
+        if sig is None:
+            continue
+        try:
+            prev_handler = signal.getsignal(sig)
+            def _handler(signum, _frame, name=sig_name, prev=prev_handler):
+                proxy_logger.warning(
+                    "Received %s (signum=%d) — initiating shutdown", name, signum,
+                )
+                # Re-raise via the previous handler so aiohttp's normal
+                # shutdown still runs.
+                if callable(prev):
+                    prev(signum, _frame)
+                else:
+                    raise KeyboardInterrupt()
+            signal.signal(sig, _handler)
+        except (ValueError, OSError):
+            # Signal may not be available on this platform; skip silently.
+            pass
 
     embedding_status = (
         f"on ({tag_index.size} nodes)" if tag_index else "off (inert)"
     )
     print()
     print(f"Declawsified proxy starting on {config.host}:{config.port}")
+    print(f"  PID:             {os.getpid()}")
     print(f"  Upstream:        {config.upstream_url}")
     print(f"  State file:      {config.state_file}")
+    print(f"  Spend log:       {config.spend_log_dir}")
     print(f"  Log file:        {log_file}")
     print(f"  Classifiers:     {len(classifiers)}")
     print(f"  EmbeddingTagger: {embedding_status}")
@@ -160,7 +206,19 @@ def main() -> int:
     print(f'  ANTHROPIC_BASE_URL=http://{config.host}:{config.port}')
     print()
 
-    web.run_app(app, host=config.host, port=config.port, print=None)
+    try:
+        web.run_app(app, host=config.host, port=config.port, print=None)
+    except KeyboardInterrupt:
+        # aiohttp's run_app already converts SIGINT to KeyboardInterrupt
+        # and runs cleanup, but the exception still propagates here. Log
+        # it as the final breath so post-mortem readers can see "ah, this
+        # was a Ctrl+C" without digging through the asyncio cascade.
+        proxy_logger.warning("Proxy exiting after KeyboardInterrupt")
+    except Exception:
+        proxy_logger.exception("Proxy exiting after unhandled exception")
+        raise
+    finally:
+        proxy_logger.info("Proxy process exit | pid=%d", os.getpid())
     return 0
 
 

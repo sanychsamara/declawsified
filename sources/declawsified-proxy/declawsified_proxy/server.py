@@ -276,6 +276,18 @@ class ProxyServer:
                     headers=resp_headers,
                     body=resp_bytes,
                 )
+        except (aiohttp.ClientConnectionError, ConnectionResetError) as exc:
+            logger.warning("Client disconnected before upstream response: %s", exc)
+            return web.json_response(
+                {
+                    "type": "error",
+                    "error": {
+                        "type": "upstream_error",
+                        "message": f"declawsified-proxy client disconnect: {exc!r}",
+                    },
+                },
+                status=502,
+            )
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             logger.exception("Upstream request failed: %r", exc)
             return web.json_response(
@@ -395,7 +407,22 @@ class ProxyServer:
 
             await stream_response.write_eof()
             upstream_status = upstream_resp.status
+        except (aiohttp.ClientConnectionError, ConnectionResetError) as exc:
+            # Client (Claude Code) closed the connection mid-stream. This is
+            # normal traffic — the user hit Ctrl+C, the IDE died, the network
+            # blipped, etc. Log at WARNING without a stack trace; not a server
+            # error worth a 30-line traceback in the log every time.
+            logger.warning(
+                "Client disconnected mid-stream (recoverable): %s", exc,
+            )
+            try:
+                await stream_response.write_eof()
+            except Exception:
+                pass
+            return stream_response
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            # Real upstream-side failure (Anthropic API). Keep the full
+            # traceback — these are rare and worth investigating.
             logger.exception("Upstream streaming read failed mid-stream: %r", exc)
             try:
                 await stream_response.write_eof()
