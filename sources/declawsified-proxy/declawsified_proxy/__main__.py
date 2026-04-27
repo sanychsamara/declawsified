@@ -152,6 +152,8 @@ def main() -> int:
     history = InMemoryCallHistoryStore()
 
     server = ProxyServer(config, classifiers, session_store, history)
+    app = server.create_app()
+
     # Hook explicit shutdown logging onto the app lifecycle so the log
     # always shows a clear "shutdown initiated" line BEFORE aiohttp's
     # cascade of in-flight cancellations (which is what the noisy
